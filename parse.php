@@ -16,6 +16,7 @@ $keywords = array(
 class tToken {
   public $type;
   public $data;
+  public $last;
 }
 class tIdentifier {
   public $stringSearch;
@@ -77,6 +78,10 @@ abstract class tokenType {
   const b_true = 149;
   const b_false = 150;
 
+  const f_gf = 151;
+  const f_lf = 152;
+  const f_tf = 153;
+
   const identifier = 200;
   const number = 201;
   const stringStream = 202;
@@ -122,7 +127,7 @@ function init_token(){
   $token = new tToken();
   $token->data = NULL;
   $token->type = tokenType::start;
-  $token->identity = NULL;
+  $token->last = True;
 }
 
 function identify_operand(){
@@ -136,7 +141,7 @@ function identify_operand(){
       $identifier->numberSearch = True;
       break;
     default:
-      if(preg_match("/^(LT)|(GT)|(LF)$/")){
+      if(preg_match("/^(LT)|(GT)|(LF)$/", $token->data)){
         $identifier->varSearch = True;
       }
       break;
@@ -162,12 +167,16 @@ function get_token(){
   global $array_stream;
   global $key_val;
   global $keywords;
+
   $token_end = True;
   $token_type = tokenType::start;
   init_token();
 
   while($token_end){
-    //if($array_stream[$key_val] === end($array_stream))  break;  //end of Array !!!!
+    // if($key_val === array_key_last($array_stream)){   //end of Array works only for PHP7.3!!!!
+    //   $token->last = False;
+    //   break;
+    // }
 
     switch ($token_type) {
       case tokenType::start:
@@ -228,6 +237,7 @@ function get_token(){
         $token->data = $array_stream[$key_val];
         $token->type = tokenType::EOL;
         $key_val++;
+        preset_identifier();
         $token_end = False;
         break;
       }
@@ -238,7 +248,6 @@ function get_token(){
           $key_val++;
         }
         $key_val--;
-        preset_identifier();
         $token_end = False;
         break;
       }
@@ -251,7 +260,7 @@ function get_token(){
           }
           elseif($array_stream[$key_val] === PHP_EOL){
             $token_type = tokenType::identifyStream;
-            $key_val--;
+            //$key_val--;
             break;
           }
           $token->data .= $array_stream[$key_val];
@@ -292,7 +301,6 @@ function get_token(){
           exit();//no ippcode header;
         }
 
-
         isset_identif();
         break;
       }
@@ -307,9 +315,152 @@ function get_token(){
 arg_parse($argc, $argv);
 read_stream();
 preset_identifier();
-for($i = 0; $i < 12 ; $i++){
+init_token();
+
+for($i = 0; $i < 20 ; $i++){
   get_token();
   echo "token data: " . $token->data . " type: " . $token->type . "\n";
 
 }
+#   SYNTAX ANALYSIS
+function eol_identify(){
+  global $token;
+
+  get_token();
+  if($token->type !== tokenType::EOL){
+    fwrite(STDERR, "ERROR : SYNTAX : \n");
+  }
+}
+function var_identify(){
+  global $token;
+  $error_val = False;
+
+  if($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
+    get_token();
+    if($token->type === tokenType::marker){
+      get_token();
+      if($token->type !== tokenType::identifier){
+        $error_val = True;
+      }
+    }
+    else $error_val = True;
+  }
+  else $error_val = True;
+
+  eol_identify();
+
+  if($error_val){
+    fwrite(STDERR, "ERROR : SYNTAX :\n");
+    exit();
+  }
+}
+function symb_identify(){
+  global $token;
+  $error_val = False;
+
+  if($token->type === tokenType::d_int){
+    get_token();
+    if($token->type === tokenType::marker){
+      get_token();
+      if($token->type !== tokenType::number){
+        $error_val = True;
+      }
+    }
+    else $error_val = True;
+  }
+  elseif($token->type === tokenType::dstring){
+    get_token();
+    if($token->type === tokenType::marker){
+      get_token();
+      if($token->type !== tokenType::stringStream){
+        $error_val = True;
+      }
+    }
+    else $error_val = True;
+  }
+  elseif($token->type === tokenType::d_bool){
+    get_token();
+    if($token->type === tokenType::marker){
+      get_token();
+      if($token->type !== tokenType::b_true || $token->type !== tokenType::b_false){
+        $error_val = True;
+      }
+    }
+    else $error_val = True;
+  }
+  elseif($token->type === tokenType::d_nil){
+    get_token();
+    if($token->type === tokenType::marker){
+      get_token();
+      if($token->type !== tokenType::d_nil){
+        $error_val = True;
+      }
+    }
+    else $error_val = True;
+  }
+  elseif($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
+    get_token();
+    if($token->type === tokenType::marker){
+      get_token();
+      if($token->type !== tokenType::identifier){
+        $error_val = True;
+      }
+    }
+    else $error_val = True;
+  }
+  else $error_val = True;
+
+  eol_identify();
+
+  if($error_val){
+    fwrite(STDERR, "ERROR : SYNTAX :\n");
+    exit();
+  }
+}
+
+// while($token->last){
+
+  get_token();
+  switch ($token->type) {
+    case tokenType::i_createframe:
+    case tokenType::i_pushframe:
+    case tokenType::i_return:
+    case tokenType::i_break:
+      get_token();
+      if($token->type !== tokenType::EOL){
+        fwrite(STDERR, "ERROR : SYNTAX : \n");
+        exit();
+      }
+      break;
+    case tokenType::i_call:
+    case tokenType::i_label:
+    case tokenType::i_jump:
+        get_token();
+        if($token->type !== tokenType::identifier){
+          fwrite(STDERR, "ERROR : SYNTAX : ");
+          exit();
+        }
+        break;
+    case tokenType::i_defvar:
+    case tokenType::i_pops:
+          var_identify();
+          break;
+    case tokenType::i_pushs:
+    case tokenType::i_write:
+    case tokenType::i_exit:
+    case tokenType::i_dprint:
+          symb_identify();
+          break;
+    case tokenType::i_move:
+    case tokenType::i_int2char:
+    case tokenType::i_strlen:
+    case tokenType::i_type:
+    case tokenType::i_not:
+          break;
+    default:
+      # code...
+      break;
+  }
+// }
+
  ?>
