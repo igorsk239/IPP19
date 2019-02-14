@@ -23,6 +23,11 @@ class tIdentifier {
   public $varSearch;
   public $numberSearch;
 }
+class aStatp {
+  public $ispresent;
+  public $stat_list;
+  public $statistics;
+}
 
 abstract class tokenType {
   const start = 100;
@@ -111,6 +116,8 @@ function read_stream(){
     $array_key++;
   }
   global $key_val;
+  global $c_commentary;
+  $c_commentary = 0;
   $key_val = 0;
 }
 function preset_identifier()
@@ -168,15 +175,16 @@ function get_token(){
   global $key_val;
   global $keywords;
 
+  global $c_commentary;
+
   $token_end = True;
   $token_type = tokenType::start;
   init_token();
 
   while($token_end){
-    // if($key_val === array_key_last($array_stream)){   //end of Array works only for PHP7.3!!!!
-    //   $token->last = False;
-    //   break;
-    // }
+    if($key_val === array_key_last($array_stream)){   //end of Array works only for PHP7.3!!!!
+      $token->last = False;
+    }
 
     switch ($token_type) {
       case tokenType::start:
@@ -247,8 +255,8 @@ function get_token(){
         {
           $key_val++;
         }
-        $key_val--;
-        $token_end = False;
+        $c_commentary++;
+        $token_type = tokenType::EOL;
         break;
       }
       case tokenType::charStream:
@@ -260,7 +268,6 @@ function get_token(){
           }
           elseif($array_stream[$key_val] === PHP_EOL){
             $token_type = tokenType::identifyStream;
-            //$key_val--;
             break;
           }
           $token->data .= $array_stream[$key_val];
@@ -288,69 +295,85 @@ function get_token(){
         if(preg_match("/^[+|-]?[1-9][0-9]*|[+|-][0]|[0]$/", $token->data)){  //matching numbers
           $token->type = tokenType::number;
           $token_end = False;
-          //break;
         }
         elseif(preg_match("/^([ěščřžýáíéóúůďťňĎŇŤŠČŘŽÝÁÍÉÚŮa-zA-Z0-9]|([\\\\][0-9]{3})?)*$/", $token->data)){
           $token->type = tokenType::stringStream;
           $token_end = False;
-          //break;
         }
         else {
           fwrite(STDERR,"ERROR : LEX : detected\n");
           echo "$token->data|\n";
-          exit();//no ippcode header;
+          exit();
         }
-
         isset_identif();
         break;
       }
 
       default:
-        # code...
         break;
     }
   }
 }
+
 
 arg_parse($argc, $argv);
 read_stream();
 preset_identifier();
 init_token();
 
-for($i = 0; $i < 20 ; $i++){
+/*  Header occurence check*/
+get_token();
+if($token->type === tokenType::header)
+{
   get_token();
-  echo "token data: " . $token->data . " type: " . $token->type . "\n";
-
+  if($token->type !== tokenType::EOL){
+    fwrite(STDERR, "ERROR : HEADER : Header must be followed by new line\n");
+    exit();
+  }
 }
+else{
+  fwrite(STDERR, "ERROR : HEADER : Missing header in format .ippcode19\n");
+  exit();
+}
+$header_check = 1;
+
+
+//DEBUG
+// for($i = 0; $i < 23 ; $i++){
+//   get_token();
+//   echo "token data: " . $token->data . " type: " . $token->type . "\n";
+//
+// }
 #   SYNTAX ANALYSIS
 function eol_identify(){
   global $token;
 
   get_token();
   if($token->type !== tokenType::EOL){
-    fwrite(STDERR, "ERROR : SYNTAX : \n");
+    fwrite(STDERR, "ERROR : SYNTAX : End of line <eol> expected : last token: $token->data\n");
+    exit();
   }
 }
 function var_identify(){
   global $token;
   $error_val = False;
 
+  get_token();
   if($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
     get_token();
     if($token->type === tokenType::marker){
       get_token();
       if($token->type !== tokenType::identifier){
         $error_val = True;
+        echo "control : $token->data  type : $token->type\n";
       }
     }
     else $error_val = True;
   }
   else $error_val = True;
 
-  eol_identify();
-
   if($error_val){
-    fwrite(STDERR, "ERROR : SYNTAX :\n");
+    fwrite(STDERR, "ERROR : SYNTAX : Variable <var> expected : last token: $token->data\n");
     exit();
   }
 }
@@ -358,6 +381,7 @@ function symb_identify(){
   global $token;
   $error_val = False;
 
+  get_token();
   if($token->type === tokenType::d_int){
     get_token();
     if($token->type === tokenType::marker){
@@ -368,7 +392,7 @@ function symb_identify(){
     }
     else $error_val = True;
   }
-  elseif($token->type === tokenType::dstring){
+  elseif($token->type === tokenType::d_string){
     get_token();
     if($token->type === tokenType::marker){
       get_token();
@@ -382,9 +406,10 @@ function symb_identify(){
     get_token();
     if($token->type === tokenType::marker){
       get_token();
-      if($token->type !== tokenType::b_true || $token->type !== tokenType::b_false){
-        $error_val = True;
+      if($token->type === tokenType::b_true || $token->type === tokenType::b_false){
+        ;
       }
+      else $error_val = True;
     }
     else $error_val = True;
   }
@@ -410,57 +435,150 @@ function symb_identify(){
   }
   else $error_val = True;
 
-  eol_identify();
-
   if($error_val){
-    fwrite(STDERR, "ERROR : SYNTAX :\n");
+    fwrite(STDERR, "ERROR : SYNTAX : Symbol <symb> expected : last token: $token->data\n");
     exit();
   }
 }
 
-// while($token->last){
+$v_statp = new aStatp();
+$v_statp->ispresent = 0;
 
+while($token->last){
+  $v_statp->statistics[$instruct]++;
   get_token();
   switch ($token->type) {
+    case tokenType::header:
+          eol_identify();
+          $header_check++;
+          $v_statp->statistics[$instruct]--;
+          break;
     case tokenType::i_createframe:
     case tokenType::i_pushframe:
     case tokenType::i_return:
     case tokenType::i_break:
-      get_token();
-      if($token->type !== tokenType::EOL){
-        fwrite(STDERR, "ERROR : SYNTAX : \n");
-        exit();
-      }
-      break;
-    case tokenType::i_call:
+          eol_identify();
+          break;
+
     case tokenType::i_label:
+          $v_statp->statistics[$labels]++;
+    case tokenType::i_call:
     case tokenType::i_jump:
-        get_token();
-        if($token->type !== tokenType::identifier){
-          fwrite(STDERR, "ERROR : SYNTAX : ");
-          exit();
-        }
-        break;
+          get_token();
+          if($token->type !== tokenType::identifier){
+            fwrite(STDERR, "ERROR : SYNTAX : Label <label> expected : last token: $token->data\n");
+            exit();
+          }
+          if($token->type === tokenType::i_jump || $token->type === tokenType::i_call) $v_statp->statistics[$jumps]++;
+          eol_identify();
+          break;
     case tokenType::i_defvar:
     case tokenType::i_pops:
           var_identify();
+          eol_identify();
           break;
     case tokenType::i_pushs:
     case tokenType::i_write:
     case tokenType::i_exit:
     case tokenType::i_dprint:
           symb_identify();
+          eol_identify();
           break;
     case tokenType::i_move:
     case tokenType::i_int2char:
     case tokenType::i_strlen:
     case tokenType::i_type:
     case tokenType::i_not:
+          var_identify();
+          symb_identify();
+          eol_identify();
+          break;
+    case tokenType::i_add:
+    case tokenType::i_sub:
+    case tokenType::i_mul:
+    case tokenType::i_idiv:
+    case tokenType::i_lt:
+    case tokenType::i_gt:
+    case tokenType::i_eq:
+    case tokenType::i_and:
+    case tokenType::i_or:
+    case tokenType::i_stri2int:
+    case tokenType::i_concat:
+    case tokenType::i_getchar:
+    case tokenType::i_setchar:
+          var_identify();
+          symb_identify();
+          symb_identify();
+          eol_identify();
+          break;
+    case tokenType::i_jumpifeq:
+    case tokenType::i_jumpifneq:
+          get_token();
+          if($token->type !== tokenType::identifier){
+            fwrite(STDERR, "ERROR : SYNTAX : Expected <label> : last token: $token->data\n");
+            exit();
+          }
+          symb_identify();
+          symb_identify();
+          eol_identify();
+          $v_statp->statistics[$jumps]++;
+          break;
+    case tokenType::i_read:
+          var_identify();
+          get_token();
+          if($token->type < d_string || $token->type > d_bool){
+            fwrite(STDERR, "ERROR : SYNTAX : Expected <type> : last token: $token->data\n");
+            exit();
+          }
+          break;
+    case tokenType::EOL:
+    $v_statp->statistics[$instruct]--;
           break;
     default:
       # code...
       break;
   }
-// }
+}
+
+if($header_check != 1){
+  fwrite(STDERR, "ERROR : HEADER : Multiple headers detected\n");
+  exit();
+}
+
+foreach ($argv as $key => $value) {
+  if(preg_match("/(\-\-stats=)|(\-\-loc)|(\-\-comments)|(\-\-labels)|(\-\-jumps)/",$argv[$key])){
+    array_push($v_statp->stat_list, $argv[$key]);
+    if(preg_match("/(\-\-stats=)/")){
+      $key++;
+      $file_stat = $argv[$key]; //file name
+      $v_statp->ispresent++;
+    }
+  }
+  echo "$argv[$key]\n";
+}
+
+foreach ($v_statp->stat_list as $key => $value) {
+  switch ($value) {
+    case '--loc':
+      $file_stat .= $v_statp->statistics[$instruct] . "\n";
+      break;
+    case '--comments':
+      $file_stat .= $c_commentary . "\n";
+      break;
+    case '--labels':
+      $file_stat .= $v_statp->statistics[$labels] . "\n";
+      break;
+    case '--jumps':
+      $file_stat .= $v_statp->statistics[$jumps] . "\n";
+      break;
+    default:
+      # code...
+      break;
+  }
+}
+if($v_statp->ispresent !== 1 && !empty($v_statp->stat_list)){
+  fwrite(STDERR, "ERROR : STATP : --stats not present\n");
+  exit(10);
+}
 
  ?>
