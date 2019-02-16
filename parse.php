@@ -94,17 +94,14 @@ abstract class tokenType {
 
 function arg_parse($argc, $argv){
 
-  if($argc === 1){
-    ;
-  }
-  elseif($argc == 2 && ($argv[1] === "--help" || $argv[1] === "-help")){
+  if($argc == 2 && ($argv[1] === "--help" || $argv[1] === "-help")){
       echo 'Usage: php7.3 parse.php | --help
             --help Prints help message'."\n";
   }
-  else{
-    fwrite(STDERR, "Usage of innapropriate argumets run parse.php --help for further details\n");
-    exit(); //appropriate exit code
-  }
+  // elseif($argc >= 2){
+  //   fwrite(STDERR, "Usage of innapropriate argumets run parse.php --help for further details\n");
+  //   exit(); //appropriate exit code
+  // }
 }
 
 function read_stream(){
@@ -344,6 +341,52 @@ $header_check = 1;
 //   echo "token data: " . $token->data . " type: " . $token->type . "\n";
 //
 // }
+# XML GENERATION
+
+function xml_token_type($t_type){
+  switch ($t_type) {
+    case tokenType::d_int:
+      return "int";
+    case tokenType::d_string:
+      return "string";
+    case tokenType::d_bool:
+      return "bool";
+    case tokenType::d_nil:
+      return "nil";
+    case tokenType::identifier:
+      return "var";
+    case tokenType:::
+      return "label";
+    case tokenType:::
+      return "type";
+    default:
+      # code...
+      break;
+  }
+}
+function xml_add_symbol(){
+
+}
+
+function xml_add_label(){
+
+}
+
+function xml_add_var(){
+
+}
+
+function xml_special_char($t_data){
+
+  if(preg_match("/\"/", $t_data)) str_replace("\"", "&quot", $t_data);
+  elseif(preg_match("\'", $t_data)) str_replace("\'", "&quot", $t_data);
+  elseif(preg_match("&", $t_data)) str_replace("&", "&amp", $t_data);
+  elseif(preg_match("<", $t_data)) str_replace("<", "&lt", $t_data);
+  elseif(preg_match(">", $t_data)) str_replace(">", "&gt", $t_data);
+}
+
+
+
 #   SYNTAX ANALYSIS
 function eol_identify(){
   global $token;
@@ -360,13 +403,16 @@ function var_identify(){
 
   get_token();
   if($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
+    $arg1->addAttribute('type',xml_token_type($token->type));
+    $arg1[0] = $token->data;
     get_token();
     if($token->type === tokenType::marker){
+      $arg1[0] .= $token->data;
       get_token();
       if($token->type !== tokenType::identifier){
         $error_val = True;
-        echo "control : $token->data  type : $token->type\n";
       }
+      $arg1[0] .= $token->data;
     }
     else $error_val = True;
   }
@@ -443,15 +489,32 @@ function symb_identify(){
 
 $v_statp = new aStatp();
 $v_statp->ispresent = 0;
+$v_statp->stat_list = [];
+$statp_stats[1] = 0;
+$statp_stats[2] = 0;
+$statp_stats[3] = 0;
+
+$program = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?>'.'<program></program>');
+$program->addAttribute('language', 'IPPcode19');
+$instr_ord = 0;
 
 while($token->last){
-  $v_statp->statistics[$instruct]++;
+  $statp_stats[1]++;
   get_token();
+  if($token->type !== tokenType::EOL){
+    $instr_ord++;
+    $instruction = $program->addChild('instruction');
+    $instruction->addAttribute('order', $instr_ord);
+    $instruction->addAttribute('opcode', strtoupper($keywords[($token->type)-110]));
+  }
+
+
+
   switch ($token->type) {
     case tokenType::header:
           eol_identify();
           $header_check++;
-          $v_statp->statistics[$instruct]--;
+          $statp_stats[1]--;
           break;
     case tokenType::i_createframe:
     case tokenType::i_pushframe:
@@ -461,7 +524,7 @@ while($token->last){
           break;
 
     case tokenType::i_label:
-          $v_statp->statistics[$labels]++;
+          $statp_stats[2]++;
     case tokenType::i_call:
     case tokenType::i_jump:
           get_token();
@@ -469,11 +532,12 @@ while($token->last){
             fwrite(STDERR, "ERROR : SYNTAX : Label <label> expected : last token: $token->data\n");
             exit();
           }
-          if($token->type === tokenType::i_jump || $token->type === tokenType::i_call) $v_statp->statistics[$jumps]++;
+          if($token->type === tokenType::i_jump || $token->type === tokenType::i_call) $statp_stats[3]++;
           eol_identify();
           break;
     case tokenType::i_defvar:
     case tokenType::i_pops:
+          $arg1 = $instruction->addChild('arg1');
           var_identify();
           eol_identify();
           break;
@@ -521,7 +585,7 @@ while($token->last){
           symb_identify();
           symb_identify();
           eol_identify();
-          $v_statp->statistics[$jumps]++;
+          $statp_stats[3]++;
           break;
     case tokenType::i_read:
           var_identify();
@@ -532,7 +596,7 @@ while($token->last){
           }
           break;
     case tokenType::EOL:
-    $v_statp->statistics[$instruct]--;
+          $statp_stats[1]--;
           break;
     default:
       # code...
@@ -548,37 +612,59 @@ if($header_check != 1){
 foreach ($argv as $key => $value) {
   if(preg_match("/(\-\-stats=)|(\-\-loc)|(\-\-comments)|(\-\-labels)|(\-\-jumps)/",$argv[$key])){
     array_push($v_statp->stat_list, $argv[$key]);
-    if(preg_match("/(\-\-stats=)/")){
-      $key++;
-      $file_stat = $argv[$key]; //file name
+    if(preg_match("/(\-\-stats=)/", $argv[$key])){
+      array_pop($v_statp->stat_list);
+      $file_stat = substr($argv[$key], 8); //file name
+      if(!file_exists($file_stat)){
+        fwrite(STDERR, "ERROR : FILE\n");
+        exit();
+      }
       $v_statp->ispresent++;
     }
   }
-  echo "$argv[$key]\n";
+  elseif(preg_match("/(parse.php)/", $argv[$key])){
+      array_pop($v_statp->stat_list);
+  }
+  else {
+    fwrite(STDERR, "ERROR : ARGUMENTS : unknown argument $value use --help\n");
+    exit();
+  }
 }
 
 foreach ($v_statp->stat_list as $key => $value) {
   switch ($value) {
     case '--loc':
-      $file_stat .= $v_statp->statistics[$instruct] . "\n";
+      file_put_contents($file_stat, "$statp_stats[1]\n", FILE_APPEND);
       break;
     case '--comments':
-      $file_stat .= $c_commentary . "\n";
+      file_put_contents($file_stat, "$c_commentary\n", FILE_APPEND);
       break;
     case '--labels':
-      $file_stat .= $v_statp->statistics[$labels] . "\n";
+      file_put_contents($file_stat, "$statp_stats[2]\n", FILE_APPEND);
       break;
     case '--jumps':
-      $file_stat .= $v_statp->statistics[$jumps] . "\n";
+      file_put_contents($file_stat, "$statp_stats[3]\n", FILE_APPEND);
       break;
     default:
-      # code...
       break;
   }
 }
 if($v_statp->ispresent !== 1 && !empty($v_statp->stat_list)){
   fwrite(STDERR, "ERROR : STATP : --stats not present\n");
   exit(10);
+}
+
+/*
+$program = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?>'.'<program></program>');
+$program->addAttribute('language', 'IPPcode19');
+*/
+$array_stream = array_values($array_stream);
+echo "keyval : $key_val  arrkey : $array_key   \n";
+$key_val = 0;
+echo "keyval : $key_val  arrkey : $array_key   \n";
+while($token->last){
+  get_token();
+  echo "$token->data\n";
 }
 
  ?>
