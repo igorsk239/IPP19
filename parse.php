@@ -343,39 +343,27 @@ $header_check = 1;
 // }
 # XML GENERATION
 
-function xml_token_type($t_type){
-  switch ($t_type) {
-    case tokenType::d_int:
-      return "int";
-    case tokenType::d_string:
-      return "string";
-    case tokenType::d_bool:
-      return "bool";
-    case tokenType::d_nil:
-      return "nil";
-    case tokenType::identifier:
-      return "var";
-    case tokenType:::
-      return "label";
-    case tokenType:::
-      return "type";
-    default:
-      # code...
-      break;
-  }
-}
-function xml_add_symbol(){
-
-}
-
-function xml_add_label(){
-
-}
-
-function xml_add_var(){
-
-}
-
+// function xml_token_type($t_type){
+//   switch ($t_type) {
+//     case tokenType::d_int:
+//       return "int";
+//     case tokenType::d_string:
+//       return "string";
+//     case tokenType::d_bool:
+//       return "bool";
+//     case tokenType::d_nil:
+//       return "nil";
+//     case tokenType::identifier:
+//       return "var";
+//     case tokenType:::
+//       return "label";
+//     case tokenType:::
+//       return "type";
+//     default:
+//       # code...
+//       break;
+//   }
+// }
 function xml_special_char($t_data){
 
   if(preg_match("/\"/", $t_data)) str_replace("\"", "&quot", $t_data);
@@ -397,13 +385,13 @@ function eol_identify(){
     exit();
   }
 }
-function var_identify(){
+function var_identify($arg1){
   global $token;
   $error_val = False;
 
   get_token();
   if($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
-    $arg1->addAttribute('type',xml_token_type($token->type));
+    $arg1->addAttribute('type', 'var');
     $arg1[0] = $token->data;
     get_token();
     if($token->type === tokenType::marker){
@@ -423,59 +411,73 @@ function var_identify(){
     exit();
   }
 }
-function symb_identify(){
+function symb_identify($arg_order){
   global $token;
   $error_val = False;
 
   get_token();
   if($token->type === tokenType::d_int){
+    $arg_order->addAttribute('type','int');
     get_token();
     if($token->type === tokenType::marker){
       get_token();
       if($token->type !== tokenType::number){
         $error_val = True;
       }
+      $arg_order[0] .= $token->data;
     }
     else $error_val = True;
   }
   elseif($token->type === tokenType::d_string){
+    $arg_order->addAttribute('type','string');
     get_token();
     if($token->type === tokenType::marker){
       get_token();
       if($token->type !== tokenType::stringStream){
         $error_val = True;
       }
+      $arg_order[0] .= xml_special_char($token->data);
     }
     else $error_val = True;
   }
   elseif($token->type === tokenType::d_bool){
+    $arg_order->addAttribute('type','bool');
     get_token();
     if($token->type === tokenType::marker){
       get_token();
-      if($token->type === tokenType::b_true || $token->type === tokenType::b_false){
-        ;
+      if($token->type === tokenType::b_true){
+        $arg_order[0] .= $token->data;
+      }
+      elseif($token->type === tokenType::b_false){
+        $arg_order[0] .= $token->data;
       }
       else $error_val = True;
     }
     else $error_val = True;
   }
   elseif($token->type === tokenType::d_nil){
+    $arg_order->addAttribute('type', 'nil');
     get_token();
     if($token->type === tokenType::marker){
       get_token();
       if($token->type !== tokenType::d_nil){
         $error_val = True;
       }
+      $arg_order[0] .= $token->data;
     }
     else $error_val = True;
   }
   elseif($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
+    $arg_order->addAttribute('type', 'var');
+    $arg_order[0] .= $token->data;
     get_token();
     if($token->type === tokenType::marker){
+      $arg_order[0] .= $token->data;
       get_token();
       if($token->type !== tokenType::identifier){
         $error_val = True;
       }
+      $arg_order[0] .= xml_special_char($token->data);
     }
     else $error_val = True;
   }
@@ -508,8 +510,6 @@ while($token->last){
     $instruction->addAttribute('opcode', strtoupper($keywords[($token->type)-110]));
   }
 
-
-
   switch ($token->type) {
     case tokenType::header:
           eol_identify();
@@ -527,25 +527,29 @@ while($token->last){
           $statp_stats[2]++;
     case tokenType::i_call:
     case tokenType::i_jump:
+          $arg1 = $instruction->addChild('arg1');
+          $arg1->addAttribute('type', 'label');
           get_token();
           if($token->type !== tokenType::identifier){
             fwrite(STDERR, "ERROR : SYNTAX : Label <label> expected : last token: $token->data\n");
             exit();
           }
+          $arg1[0] .= $token->data;
           if($token->type === tokenType::i_jump || $token->type === tokenType::i_call) $statp_stats[3]++;
           eol_identify();
           break;
     case tokenType::i_defvar:
     case tokenType::i_pops:
           $arg1 = $instruction->addChild('arg1');
-          var_identify();
+          var_identify($arg1);
           eol_identify();
           break;
     case tokenType::i_pushs:
     case tokenType::i_write:
     case tokenType::i_exit:
     case tokenType::i_dprint:
-          symb_identify();
+          $arg1 = $instruction->addChild('arg1');
+          symb_identify($arg1);
           eol_identify();
           break;
     case tokenType::i_move:
@@ -553,8 +557,10 @@ while($token->last){
     case tokenType::i_strlen:
     case tokenType::i_type:
     case tokenType::i_not:
-          var_identify();
-          symb_identify();
+          $arg1 = $instruction->addChild('arg1');
+          $arg2 = $instruction->addChild('arg2');
+          var_identify($arg1);
+          symb_identify($arg2);
           eol_identify();
           break;
     case tokenType::i_add:
@@ -570,30 +576,41 @@ while($token->last){
     case tokenType::i_concat:
     case tokenType::i_getchar:
     case tokenType::i_setchar:
-          var_identify();
-          symb_identify();
-          symb_identify();
+          $arg1 = $instruction->addChild('arg1');
+          $arg2 = $instruction->addChild('arg2');
+          $arg3 = $instruction->addChild('arg3');
+          var_identify($arg1);
+          symb_identify($arg2);
+          symb_identify($arg3);
           eol_identify();
           break;
     case tokenType::i_jumpifeq:
     case tokenType::i_jumpifneq:
+          $arg1 = $instruction->addChild('arg1');
+          $arg2 = $instruction->addChild('arg2');
+          $arg3 = $instruction->addChild('arg3');
+          $arg1->addAttribute('type', 'label');
           get_token();
           if($token->type !== tokenType::identifier){
             fwrite(STDERR, "ERROR : SYNTAX : Expected <label> : last token: $token->data\n");
             exit();
           }
-          symb_identify();
-          symb_identify();
+          symb_identify($arg2);
+          symb_identify($arg3);
           eol_identify();
           $statp_stats[3]++;
           break;
     case tokenType::i_read:
-          var_identify();
+          $arg1 = $instruction->addChild('arg1');
+          var_identify($arg1);
           get_token();
           if($token->type < d_string || $token->type > d_bool){
             fwrite(STDERR, "ERROR : SYNTAX : Expected <type> : last token: $token->data\n");
             exit();
           }
+          $arg2 = $instruction->addChild('arg2');
+          $arg2->addAttribute('type', 'type');
+          $arg2[0] .= $token->data;
           break;
     case tokenType::EOL:
           $statp_stats[1]--;
@@ -603,6 +620,13 @@ while($token->last){
       break;
   }
 }
+
+$dom = new DOMDocument("1.0");
+$dom->preserveWhiteSpace = false;
+$dom->formatOutput = true;
+$dom->loadXML($program->asXML());
+echo $dom->saveXML();
+
 
 if($header_check != 1){
   fwrite(STDERR, "ERROR : HEADER : Multiple headers detected\n");
@@ -658,13 +682,13 @@ if($v_statp->ispresent !== 1 && !empty($v_statp->stat_list)){
 $program = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?>'.'<program></program>');
 $program->addAttribute('language', 'IPPcode19');
 */
-$array_stream = array_values($array_stream);
-echo "keyval : $key_val  arrkey : $array_key   \n";
-$key_val = 0;
-echo "keyval : $key_val  arrkey : $array_key   \n";
-while($token->last){
-  get_token();
-  echo "$token->data\n";
-}
+// $array_stream = array_values($array_stream);
+// echo "keyval : $key_val  arrkey : $array_key   \n";
+// $key_val = 0;
+// echo "keyval : $key_val  arrkey : $array_key   \n";
+// while($token->last){
+//   get_token();
+//   echo "$token->data\n";
+// }
 
  ?>
