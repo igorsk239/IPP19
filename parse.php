@@ -22,6 +22,8 @@ class tIdentifier {
   public $stringSearch;
   public $varSearch;
   public $numberSearch;
+  public $labelSearch;
+  public $markerSearch;
 }
 class aStatp {
   public $ispresent;
@@ -98,20 +100,19 @@ function arg_parse($argc, $argv){
       echo 'Usage: php7.3 parse.php | --help
             --help Prints help message'."\n";
   }
-  // elseif($argc >= 2){
-  //   fwrite(STDERR, "Usage of innapropriate argumets run parse.php --help for further details\n");
-  //   exit(); //appropriate exit code
-  // }
 }
 
 function read_stream(){
   global $array_stream;
   $array_key = 0;
-
-  while($character = fgetc(STDIN)){
-    $array_stream[$array_key] = $character;
-    $array_key++;
-  }
+  $array_stream = stream_get_contents(STDIN);
+  $array_stream = str_split($array_stream);
+  //echo "$input_data\n";
+  // while($character = fgetc(STDIN)){
+  //   echo "$character|\n";
+  //   $array_stream[$array_key] = $character;
+  //   $array_key++;
+  // }
   global $key_val;
   global $c_commentary;
   $c_commentary = 0;
@@ -124,7 +125,13 @@ function preset_identifier()
   $identifier->stringSearch = NULL;
   $identifier->varSearch = NULL;
   $identifier->numberSearch = NULL;
+  $identifier->markerSearch = NULL;
 
+}
+function preset_label(){
+  global $label;
+  $label = new tIdentifier();
+  $label->isset = NULL;
 }
 function init_token(){
   global $token;
@@ -137,6 +144,7 @@ function init_token(){
 function identify_operand(){
   global $token;
   global $identifier;
+  global $label;
   switch ($token->data) {
     case 'string':
       $identifier->stringSearch = True;
@@ -144,6 +152,8 @@ function identify_operand(){
     case 'int':
       $identifier->numberSearch = True;
       break;
+    case '@':
+      $identifier->markerSearch = True;
     default:
       if(preg_match("/^(LT)|(GT)|(LF)$/", $token->data)){
         $identifier->varSearch = True;
@@ -154,14 +164,19 @@ function identify_operand(){
 function isset_identif(){
   global $token;
   global $identifier;
-  if($identifier->stringSearch){
-    $token->type = tokenType::d_string;
+  global $label;
+
+  if($identifier->stringSearch && $identifier->markerSearch){
+    $token->type = tokenType::stringStream;
   }
   elseif($identifier->varSearch){
     $token->type = tokenType::identifier;
   }
-  elseif($identifier->numberSearch){
+  elseif($identifier->numberSearch && $identifier->markerSearch){
     $token->type = tokenType::number;
+  }
+  elseif($label->isset){
+    $token->type = tokenType::identifier;
   }
 }
 
@@ -193,6 +208,8 @@ function get_token(){
         elseif($array_stream[$key_val] === "@"){
           $token->data = $array_stream[$key_val];
           $token->type = tokenType::marker;
+          identify_operand();
+          preset_label();
           $key_val++;
           $token_end = False;
           break;
@@ -203,10 +220,12 @@ function get_token(){
         }
         elseif($array_stream[$key_val] === PHP_EOL){
           $token_type = tokenType::EOL;
+
           break;
         }
         elseif($array_stream[$key_val] === "\t" || $array_stream[$key_val] === " "){ //  //elseif(preg_match("[ \t]", $array_stream[$key_val])){
           $key_val++;
+          preset_identifier();
         }
         elseif(ctype_alpha($array_stream[$key_val]) || ctype_digit($array_stream[$key_val]) || preg_match("/^_|\-|\$|&|%|\*|!|\?$/", $array_stream[$key_val])){
           $token_type = tokenType::charStream;
@@ -243,6 +262,7 @@ function get_token(){
         $token->type = tokenType::EOL;
         $key_val++;
         preset_identifier();
+        preset_label();
         $token_end = False;
         break;
       }
@@ -259,7 +279,7 @@ function get_token(){
       case tokenType::charStream:
       {
         while(1){
-          if($array_stream[$key_val] === " " || $array_stream[$key_val] === "\t" || $array_stream[$key_val] === "@"){
+          if(preg_match("/^[ \t@]$/",$array_stream[$key_val])){         // === " " || $array_stream[$key_val] === "\t" || $array_stream[$key_val] === "@"){
             $token_type = tokenType::identifyStream;
             break;
           }
@@ -286,23 +306,23 @@ function get_token(){
               break;
             }
           }
+          isset_identif();
           $token_end = False;
           break;
         }
-        if(preg_match("/^[+|-]?[1-9][0-9]*|[+|-][0]|[0]$/", $token->data)){  //matching numbers
+        if(preg_match("/^[+|-]?[0-9]*$/", $token->data)){  //matching numbers   //^[+|-]?[1-9][0-9]*|[+|-][0]|[0]$
           $token->type = tokenType::number;
           $token_end = False;
+          break;
         }
-        elseif(preg_match("/^([ěščřžýáíéóúůďťňĎŇŤŠČŘŽÝÁÍÉÚŮa-zA-Z0-9]|([\\\\][0-9]{3})?)*$/", $token->data)){
+        elseif(preg_match("/^([\x{0024}-\x{005B}]|[\x{0021}\x{0022}]|[\x{005D}-\x{FFFF}]|[ěščřžýáíéóúůďťňĎŇŤŠČŘŽÝÁÍÉÚŮa-zA-Z0-9]|([\\\\][0-9]{3})?)*$/", $token->data)){   //^([ěščřžýáíéóúůďťňĎŇŤŠČŘŽÝÁÍÉÚŮa-zA-Z0-9]|([\\\\][0-9]{3})?)*$
           $token->type = tokenType::stringStream;
           $token_end = False;
         }
         else {
-          fwrite(STDERR,"ERROR : LEX : detected\n");
-          echo "$token->data|\n";
+          fwrite(STDERR,"ERROR : LEX : detected lexical error in: $token->data\n");
           exit();
         }
-        isset_identif();
         break;
       }
 
@@ -316,6 +336,7 @@ function get_token(){
 arg_parse($argc, $argv);
 read_stream();
 preset_identifier();
+preset_label();
 init_token();
 
 /*  Header occurence check*/
@@ -335,45 +356,30 @@ else{
 $header_check = 1;
 
 
-//DEBUG
-// for($i = 0; $i < 23 ; $i++){
-//   get_token();
-//   echo "token data: " . $token->data . " type: " . $token->type . "\n";
-//
-// }
-# XML GENERATION
-
-// function xml_token_type($t_type){
-//   switch ($t_type) {
-//     case tokenType::d_int:
-//       return "int";
-//     case tokenType::d_string:
-//       return "string";
-//     case tokenType::d_bool:
-//       return "bool";
-//     case tokenType::d_nil:
-//       return "nil";
-//     case tokenType::identifier:
-//       return "var";
-//     case tokenType:::
-//       return "label";
-//     case tokenType:::
-//       return "type";
-//     default:
-//       # code...
-//       break;
-//   }
-// }
 function xml_special_char($t_data){
 
   if(preg_match("/\"/", $t_data)) str_replace("\"", "&quot", $t_data);
-  elseif(preg_match("\'", $t_data)) str_replace("\'", "&quot", $t_data);
-  elseif(preg_match("&", $t_data)) str_replace("&", "&amp", $t_data);
-  elseif(preg_match("<", $t_data)) str_replace("<", "&lt", $t_data);
-  elseif(preg_match(">", $t_data)) str_replace(">", "&gt", $t_data);
+  elseif(preg_match("/'/", $t_data)) str_replace("\'", "&quot", $t_data);
+  elseif(preg_match("/&/", $t_data)) str_replace("&", "&amp", $t_data);
+  elseif(preg_match("/</", $t_data)) str_replace("<", "&lt", $t_data);
+  elseif(preg_match("/>/", $t_data)) str_replace(">", "&gt", $t_data);
+
+  return $t_data;
 }
 
+function is_keyword($type){
+  global $keywords;
+  global $token;
 
+  foreach ($keywords as $key => $value) { //searching for keyword
+    $match_pattern = "/\b" . "$value" . "\b/i";
+    if(preg_match($match_pattern, strtolower($token->data))){
+      $token->type = $type;
+      return True;
+    }
+  }
+  return False;
+}
 
 #   SYNTAX ANALYSIS
 function eol_identify(){
@@ -407,7 +413,7 @@ function var_identify($arg1){
   else $error_val = True;
 
   if($error_val){
-    fwrite(STDERR, "ERROR : SYNTAX : Variable <var> expected : last token: $token->data\n");
+    fwrite(STDERR, "ERROR : SYNTAX : Variable <var> expected : last token: $token->data  $token->type\n");
     exit();
   }
 }
@@ -484,7 +490,7 @@ function symb_identify($arg_order){
   else $error_val = True;
 
   if($error_val){
-    fwrite(STDERR, "ERROR : SYNTAX : Symbol <symb> expected : last token: $token->data\n");
+    fwrite(STDERR, "ERROR : SYNTAX : Symbol <symb> expected : last token: $token->data  $token->type\n");
     exit();
   }
 }
@@ -531,11 +537,13 @@ while($token->last){
           $arg1->addAttribute('type', 'label');
           get_token();
           if($token->type !== tokenType::identifier){
-            fwrite(STDERR, "ERROR : SYNTAX : Label <label> expected : last token: $token->data\n");
-            exit();
+            if(!is_keyword(tokenType::identifier)){
+              fwrite(STDERR, "ERROR : SYNTAX : Label <label> expected : last token: $token->data  $token->type\n");
+              exit();
+            }
           }
           $arg1[0] .= $token->data;
-          if($token->type === tokenType::i_jump || $token->type === tokenType::i_call) $statp_stats[3]++;
+          if($token->type === tokenType::i_jump) $statp_stats[3]++; // || $token->type === tokenType::i_call
           eol_identify();
           break;
     case tokenType::i_defvar:
@@ -592,9 +600,12 @@ while($token->last){
           $arg1->addAttribute('type', 'label');
           get_token();
           if($token->type !== tokenType::identifier){
-            fwrite(STDERR, "ERROR : SYNTAX : Expected <label> : last token: $token->data\n");
-            exit();
+            if(!is_keyword(tokenType::identifier)){
+              fwrite(STDERR, "ERROR : SYNTAX : Expected <label> : last token: $token->data   $token->type\n");
+              exit();
+            }
           }
+          $arg1[0] .= $token->data;
           symb_identify($arg2);
           symb_identify($arg3);
           eol_identify();
@@ -605,7 +616,7 @@ while($token->last){
           var_identify($arg1);
           get_token();
           if($token->type < d_string || $token->type > d_bool){
-            fwrite(STDERR, "ERROR : SYNTAX : Expected <type> : last token: $token->data\n");
+            fwrite(STDERR, "ERROR : SYNTAX : Expected <type> : last token: $token->data  $token->type\n");
             exit();
           }
           $arg2 = $instruction->addChild('arg2');
@@ -677,18 +688,5 @@ if($v_statp->ispresent !== 1 && !empty($v_statp->stat_list)){
   fwrite(STDERR, "ERROR : STATP : --stats not present\n");
   exit(10);
 }
-
-/*
-$program = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?>'.'<program></program>');
-$program->addAttribute('language', 'IPPcode19');
-*/
-// $array_stream = array_values($array_stream);
-// echo "keyval : $key_val  arrkey : $array_key   \n";
-// $key_val = 0;
-// echo "keyval : $key_val  arrkey : $array_key   \n";
-// while($token->last){
-//   get_token();
-//   echo "$token->data\n";
-// }
 
  ?>
