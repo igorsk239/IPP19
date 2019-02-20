@@ -662,6 +662,7 @@ foreach ($argv as $key => $value) {
   }
   else {
     fwrite(STDERR, "ERROR : ARGUMENTS : unknown argument $value use --help\n");
+    var_dump($argv);
     exit();
   }
 }
