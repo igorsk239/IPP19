@@ -240,7 +240,7 @@ function get_token(){
       case tokenType::header:
       {
         while(1){
-          if($array_stream[$key_val] === PHP_EOL){
+          if($array_stream[$key_val] === PHP_EOL || preg_match("/^[ \t]$/",$array_stream[$key_val])){
             if(preg_match("/^.ippcode19$/", strtolower($token->data))){
               $token->type = tokenType::header;
               $token_end = False;
@@ -283,7 +283,7 @@ function get_token(){
             $token_type = tokenType::identifyStream;
             break;
           }
-          elseif($array_stream[$key_val] === PHP_EOL){
+          elseif($array_stream[$key_val] === PHP_EOL || $array_stream[$key_val] === "#"){
             $token_type = tokenType::identifyStream;
             break;
           }
@@ -404,7 +404,9 @@ function var_identify($arg1){
       $arg1[0] .= $token->data;
       get_token();
       if($token->type !== tokenType::identifier){
-        $error_val = True;
+        if(!is_keyword(tokenType::identifier)){
+          $error_val = True;
+        }
       }
       $arg1[0] .= $token->data;
     }
@@ -440,7 +442,12 @@ function symb_identify($arg_order){
     if($token->type === tokenType::marker){
       get_token();
       if($token->type !== tokenType::stringStream){
-        $error_val = True;
+        if(preg_match("/^[+|-]?[0-9]*$/",$token->data)){
+          $token->type === tokenType::number;
+        }
+        else {
+          $error_val = True;
+        }
       }
       $arg_order[0] .= xml_special_char($token->data);
     }
@@ -651,8 +658,14 @@ foreach ($argv as $key => $value) {
       array_pop($v_statp->stat_list);
       $file_stat = substr($argv[$key], 8); //file name
       if(!file_exists($file_stat)){
-        fwrite(STDERR, "ERROR : FILE\n");
-        exit();
+        if(!is_readable($file_stat)){
+          $file_stat = fopen("$file_stat", "w+");
+          // fclose($file_stat);
+          if(!$file_stat){
+            fwrite(STDERR, "ERROR : FILE : couldn't open file\n");
+            exit(12);
+          }
+        }
       }
       $v_statp->ispresent++;
     }
@@ -662,10 +675,15 @@ foreach ($argv as $key => $value) {
   }
   else {
     fwrite(STDERR, "ERROR : ARGUMENTS : unknown argument $value use --help\n");
-    var_dump($argv);
-    exit();
+    exit(10);
   }
 }
+
+if($v_statp->ispresent !== 1 && !empty($v_statp->stat_list)){
+  fwrite(STDERR, "ERROR : STATP : --stats not present\n");
+  exit(10);
+}
+elseif($v_statp->ispresent === 1) file_put_contents($file_stat, "");  //clear file contents
 
 foreach ($v_statp->stat_list as $key => $value) {
   switch ($value) {
@@ -685,9 +703,4 @@ foreach ($v_statp->stat_list as $key => $value) {
       break;
   }
 }
-if($v_statp->ispresent !== 1 && !empty($v_statp->stat_list)){
-  fwrite(STDERR, "ERROR : STATP : --stats not present\n");
-  exit(10);
-}
-
  ?>
