@@ -6,17 +6,25 @@ parse.php
 -nazov premennej LF@move  - HACK
 -obsah string@09256 - HACK
 -komentar hned za operandom - HACK
--exit codes
+-exit codes	-	HACK
 -statp opravit pracu so suborom a error codes - HACK
 -komentar na riadku hned za .ippcode19  - HACK
+-male pismena - Lf lF v oznaceni ramca - HACK
+-FAlse FALSE false - HACK
+- .ippcode19 createframe  - HACK
+-instrukcia na rovnakom riadku ako .ippcode19
+- LF@5a_55-$&amp;%*!?string - HACK
 
 test.php
 -dokumentacia kodu
--otestovat parametre vstupne
+-otestovat parametre vstupne  - HACK
 -usage v test.php a parse.php - HACK
--recursive zanorovanie do directories + oddelit spustanie testov do funkcie
+-recursive zanorovanie do directories + oddelit spustanie testov do funkcie - HACK
 - *.rc subory ak nie su vytvorene - chyba navratova hodnota zjavne  - HACK
-- generate HTML on empty dir with tests
+- generate HTML on empty dir with tests - HACK
+- add test names to output  - HACK
+- navratove hodnoty testov ktoru brat kedy
+- separatne premenne pre dir testy a celkove uspesnosti
 
 */
 
@@ -35,32 +43,29 @@ test.php
      return $text2 . $text1;
   }
 
-  function succ_test_html($test_counter){
-    echo "<font size=\"2\" color=\"black\">$test_counter. TEST :  passed </font><br>\n";
+  function succ_test_html($test_counter, $test_name){
+    echo "<font size=\"2\" color=\"black\">$test_counter. $test_name TEST :  passed </font><br>\n";
   }
-  function unsucc_test_html($test_counter){
-    echo "<font size=\"2\" color=\"red\">$test_counter. TEST :  failed </font><br>\n";
+  function unsucc_test_html($test_counter, $test_name){
+    echo "<font size=\"2\" color=\"red\">$test_counter. $test_name TEST :  failed </font><br>\n";
   }
 
   function parse_directory($files){
-    global $subdirs;
-    global $subdirs_key;
 
     foreach ($files as $key => $t_name) {
       if(strpos($t_name, ".src")) $srcfiles[$key++] = $t_name;
-      if(is_dir($t_name)){
-        $subdirs[$subdirs_key] = $t_name;
-        unset($files[$key]);
-      }
     }
     return $srcfiles;
   }
 
-  function run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file){
+  function run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file, $rec){
+    global $succ_test;
+    global $unsucess_test;
+    global $test_number;
 
     foreach ($srcfiles as $key => $value) {
       $test_number++;
-      $value = prepend($value, $dir_file);
+      if(!$rec) $value = prepend($value, $dir_file);
 
       if(!file_exists(str_replace(".src", ".rc", $value))){
         $f_rc = fopen(str_replace(".src", ".rc", $value), "w+");
@@ -87,38 +92,38 @@ test.php
       }
 
       if($arg_parse->p_parse_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
-        exec("timeout 1 php7.3 $parse_file < $value > parse_temp.out");
+        exec("timeout 1 php7.3 $parse_file < $value  2> /dev/null > parse_temp.out ");
         $ret_val = exec("echo $?");
         if($ret_val === 124){
           $unsucess_test++;
-          unsucc_test_html($test_number);
+          unsucc_test_html($test_number, $value);
         }
-        elseif($ret_val !== $rc_val){
+        elseif($ret_val !== $rc_val && ($rc_val > 0 && $rc_val <= 23)){
+          // echo "$rc_val---\n";
           $unsucess_test++;
-          unsucc_test_html($test_number);
+          unsucc_test_html($test_number, $value);
         }
         else{
           exec("java -jar /pub/courses/ipp/jexamxml/jexamxml.jar $f_out parse_temp.out diffs.xml  /D /pub/courses/ipp/jexamxml/options");
           $ret_val = exec("echo $?");
           if($ret_val !== "0"){
             $unsucess_test++;
-            unsucc_test_html($test_number);
+            unsucc_test_html($test_number, $value);
           }
           else {
-            if($arg_parse->p_parse_only){
+            //if($arg_parse->p_parse_only){
               $succ_test++;
-              succ_test_html($test_number);
-            }
+              succ_test_html($test_number, $value);
+            //}
           }
         }
-        // exec("rm parse_temp.out");
       }
       elseif($arg_parse->p_int_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
         exec("python3.6 $int_file --source=parse_temp.out --input=$f_in > int_temp.out");
         $ret_val = exec("echo $?");
         if($ret_val !== $rc_val){
           $unsucess_test++;
-          unsucc_test_html($test_number);
+          unsucc_test_html($test_number, $value);
         }
         else{
           $diff_out = "";
@@ -126,14 +131,13 @@ test.php
           exec("echo $?");
           if($ret_val !== "0"){
             $unsucess_test++;
-            unsucc_test_html($test_number);
+            unsucc_test_html($test_number, $value);
           }
           else {
             $succ_test++;
-            succ_test_html($test_number);
+            succ_test_html($test_number, $value);
           }
         }
-        exec("rm int_temp.out");
       }
       fclose($f_rc);
       fclose($f_in);
@@ -161,16 +165,16 @@ test.php
       $dir_file = substr($argv[$key], 12);
       if(substr($dir_file, -1) !== "/") $dir_file .= "/";
     }
-    elseif(substr($value, 0, 6) === "--help"){
+    elseif(preg_match("/^(\-\-help)+$/", $value)){
       $arg_parse->p_help = True;
     }
-    elseif(substr($value, 0, 11) === "--recursive"){
+    elseif(preg_match("/^(\-\-recursive)+$/", $value)){
       $arg_parse->p_rec = True;
     }
-    elseif(substr( $value, 0, 12) === "--parse-only"){
+    elseif(preg_match("/^(\-\-parse-only)+$/", $value)){
       $arg_parse->p_parse_only = True;
     }
-    elseif(substr( $value, 0, 10) === "--int-only"){
+    elseif(preg_match("/^(\-\-int-only)+$/", $value)){
       $arg_parse->p_int_only = True;
     }
     elseif(substr( $value, 0, 15) === "test.php"){
@@ -218,6 +222,8 @@ test.php
   echo "<title>IPP project</title>\n";
   echo "</head>\n";
   echo "<body>\n";
+  echo "<h1>IPP project<h1>\n";
+  echo "<h1>author: Igor Ignac<h1>\n";
 
 
   if(!$arg_parse->p_parse_script){
@@ -237,157 +243,57 @@ test.php
   $subdirs = [];
   $srcfiles = [];
 
-  // var_dump($files);
-
   /*  Parsing given directory -- not recursive  */
   if(!$arg_parse->p_rec){
 
-    // foreach ($files as $key => $t_name) {
-    //   if(strpos($t_name, ".src")) $srcfiles[$key] = $t_name;
-    //   if(is_dir($t_name)){
-    //     $subdirs[$key] = $files[$key];
-    //     unset($files[$key]);
-    //   }
-    // }
+    echo "<font size=\"6\" color=\"black\">Testing directory : $dir_file</font><br>\n";
     $srcfiles = parse_directory($files);
 
     unset($key);
     if(isset($srcfiles)){
-      run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file);
+      run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file, 1);
     }
+    else {
+      echo "<font size=\"2\" color=\"red\">Given directory doesn't contain any test</font><br>\n";
+    }
+    echo "<font size=\"5\" color=\"black\">Directory results :</font><br>\n";
+    echo "<font size=\"2\" color=\"black\">Tests total: $test_number</font><br>\n";
+    echo "<font size=\"2\" color=\"green\">Tests passed: $succ_test</font><br>\n";
+    echo "<font size=\"2\" color=\"red\">Tests failed: $unsucess_test</font><br>\n";
   }
   else {
+    /***************************************************************************************
+    *    Title: Recursive File Search (PHP)
+    *    Author: Jan Hančič
+    *    Date: Dec 7 2009 at 14:46
+    *    Availability: https://stackoverflow.com/questions/1860393/recursive-file-search-php
+    *
+    ***************************************************************************************/
+    $it = new RecursiveDirectoryIterator($dir_file);
+    $display = Array ( 'src' );
+    foreach(new RecursiveIteratorIterator($it) as $file)
+    {
+        if (in_array(strtolower(array_pop(explode('.', $file))), $display))
+            $srcfiles[] = $file;
+    }
+    /***************************************************************************************
+    *   end of citation
+    ****************************************************************************************/
+    if(isset($srcfiles)){
+      run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file, 1);
+    }
 
-    // $directories = glob($dir_file . '*' , GLOB_ONLYDIR);
-    // var_dump($directories);
-    //
-    //
-    // $rii = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir_file));
-    // $files = array();
-    //
-    // foreach ($rii as $file) {
-    //   if ($file->isDir()){
-    //     $files[] = $file->getPathname();
-    //   }
-    //   else {
-    //     continue;
-    //   }
-    // }
-    //
-    // var_dump($files);
-    // $srcfiles = parse_directory($files);
-    //
-    // unset($key);
-    // if(isset($srcfiles)){
-    //   run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file);
-    // }
-    //
-    //
-    //
-    //  var_dump($subdirs);
-    // foreach ($subdirs as $key => $dirs) {
-    //   if($dirs === "." || $dirs === "..");  //ignore . and .. directories
-    //   else{
-    //     $file = scandir($dirs);
-    //     $srcfile = parse_directory($dirs);
-    //     if(isset($srcfile)){
-    //       run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file);
-    //     }
-    //   }
-    // }
   }
-    // foreach ($srcfiles as $key => $value) {
-    //   $test_number++;
-    //   $value = prepend($value, $dir_file);
-    //
-    //   if(!file_exists(str_replace(".src", ".rc", $value))){
-    //     $f_rc = fopen(str_replace(".src", ".rc", $value), "w+");
-    //     fwrite($f_rc, "0");
-    //     $rc_val = "0";
-    //   }
-    //   else {
-    //     $f_rc = fopen(str_replace(".src", ".rc", $value), "r");
-    //     $rc_val = fgets($f_rc);
-    //   }
-    //
-    //   if(!file_exists(str_replace(".src", ".in", $value))){
-    //     $f_in = fopen(str_replace(".src", ".in", $value), "w");
-    //   }
-    //   else {
-    //     $f_in = fopen(str_replace(".src", ".in", $value), "r");
-    //   }
-    //
-    //   if(!file_exists(str_replace(".src", ".out", $value))){
-    //     $f_out = fopen(str_replace(".src", ".out", $value), "w");
-    //   }
-    //   else {
-    //     $f_out = fopen(str_replace(".src", ".out", $value), "r");
-    //   }
-    //
-    //   if($arg_parse->p_parse_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
-    //     exec("timeout 1 php7.3 $parse_file < $value > parse_temp.out");
-    //     $ret_val = exec("echo $?");
-    //     if($ret_val === 124){
-    //       $unsucess_test++;
-    //       unsucc_test_html($test_number);
-    //     }
-    //     elseif($ret_val !== $rc_val){
-    //       $unsucess_test++;
-    //       unsucc_test_html($test_number);
-    //     }
-    //     else{
-    //       exec("java -jar /pub/courses/ipp/jexamxml/jexamxml.jar $f_out parse_temp.out diffs.xml  /D /pub/courses/ipp/jexamxml/options");
-    //       $ret_val = exec("echo $?");
-    //       if($ret_val !== "0"){
-    //         $unsucess_test++;
-    //         unsucc_test_html($test_number);
-    //       }
-    //       else {
-    //         if($arg_parse->p_parse_only){
-    //           $succ_test++;
-    //           succ_test_html($test_number);
-    //         }
-    //       }
-    //     }
-    //     // exec("rm parse_temp.out");
-    //   }
-    //   elseif($arg_parse->p_int_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
-    //     exec("python3.6 $int_file --source=parse_temp.out --input=$f_in > int_temp.out");
-    //     $ret_val = exec("echo $?");
-    //     if($ret_val !== $rc_val){
-    //       $unsucess_test++;
-    //       unsucc_test_html($test_number);
-    //     }
-    //     else{
-    //       $diff_out = "";
-    //       exec("diff $int_out $f_out > $diff_out");
-    //       exec("echo $?");
-    //       if($ret_val !== "0"){
-    //         $unsucess_test++;
-    //         unsucc_test_html($test_number);
-    //       }
-    //       else {
-    //         $succ_test++;
-    //         succ_test_html($test_number);
-    //       }
-    //     }
-    //     exec("rm int_temp.out");
-    //   }
-    //   fclose($f_rc);
-    //   fclose($f_in);
-    //   fclose($f_out);
-    // }
-  // }
 
+  echo "<font size=\"5\" color=\"black\">Results for all tests :</font><br>\n";
   echo "<font size=\"2\" color=\"black\">Tests total: $test_number</font><br>\n";
-  echo "<font size=\"2\" color=\"black\">Tests passed: $succ_test</font><br>\n";
-  echo "<font size=\"2\" color=\"black\">Tests failed: $unsucess_test</font><br>\n";
+  echo "<font size=\"2\" color=\"green\">Tests passed: $succ_test</font><br>\n";
+  echo "<font size=\"2\" color=\"red\">Tests failed: $unsucess_test</font><br>\n";
   echo "</body>\n";
   echo "</html>\n";
 
-  exec("rm Resource.log 2>& 1");
-
-  // print_r($files);
-  // print_r($subdirs);
-  // print_r($srcfiles);
+  exec("rm -rf parse_temp.out 2>& 1");
+  if(!$arg_parse->p_parse_only){
+    exec("rm -rf int_temp.out 2>& 1");
+  }
  ?>

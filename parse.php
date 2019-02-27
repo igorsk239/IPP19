@@ -99,6 +99,7 @@ function arg_parse($argc, $argv){
   if($argc == 2 && ($argv[1] === "--help" || $argv[1] === "-help")){
       echo 'Usage: php7.3 parse.php | --help
             --help Prints help message'."\n";
+      exit(0);
   }
 }
 
@@ -107,12 +108,7 @@ function read_stream(){
   $array_key = 0;
   $array_stream = stream_get_contents(STDIN);
   $array_stream = str_split($array_stream);
-  //echo "$input_data\n";
-  // while($character = fgetc(STDIN)){
-  //   echo "$character|\n";
-  //   $array_stream[$array_key] = $character;
-  //   $array_key++;
-  // }
+
   global $key_val;
   global $c_commentary;
   $c_commentary = 0;
@@ -171,6 +167,10 @@ function isset_identif(){
   }
   elseif($identifier->varSearch){
     $token->type = tokenType::identifier;
+    if(!preg_match("/^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$/", $token->data)){
+      fwrite(STDERR,"ERROR : LEX : detected lexical error in: $token->data\n");
+      exit(23);
+    }
   }
   elseif($identifier->numberSearch && $identifier->markerSearch){
     $token->type = tokenType::number;
@@ -233,7 +233,7 @@ function get_token(){
         }
         else {
           fwrite(STDERR, "ERROR : Input doesn't start with .IPPcode19 header\n");
-          exit();#appropriate exit code
+          exit(21);#appropriate exit code
         }
         break;
       }
@@ -248,7 +248,7 @@ function get_token(){
             }
             else {
               fwrite(STDERR,"ERROR : Innapropriate header detected\n");
-              exit();//no ippcode header;
+              exit(21);//no ippcode header;
             }
           }
           $token->data .= $array_stream[$key_val];
@@ -321,7 +321,7 @@ function get_token(){
         }
         else {
           fwrite(STDERR,"ERROR : LEX : detected lexical error in: $token->data\n");
-          exit();
+          exit(23);
         }
         break;
       }
@@ -346,12 +346,12 @@ if($token->type === tokenType::header)
   get_token();
   if($token->type !== tokenType::EOL){
     fwrite(STDERR, "ERROR : HEADER : Header must be followed by new line\n");
-    exit();
+    exit(23);
   }
 }
 else{
   fwrite(STDERR, "ERROR : HEADER : Missing header in format .ippcode19\n");
-  exit();
+  exit(21);
 }
 $header_check = 1;
 
@@ -388,7 +388,32 @@ function eol_identify(){
   get_token();
   if($token->type !== tokenType::EOL){
     fwrite(STDERR, "ERROR : SYNTAX : End of line <eol> expected : last token: $token->data\n");
-    exit();
+    exit(22);
+  }
+}
+function upper_scan($t_data, $mode){
+  if(!$mode){
+    switch ($t_data) {
+      case 'int':
+      case 'string':
+      case 'nil':
+      case 'bool':
+      case 'LF':
+      case 'GF':
+      case 'TF':
+      break;
+
+      default:
+        fwrite(STDERR, "ERROR : LEX : Wrong case sensitivity detected in $t_data\n");
+        exit(23); #lex error
+      break;
+    }
+  }
+  else {
+    if(!preg_match("/^(true)|(false)$/", $t_data)){
+      fwrite(STDERR, "ERROR : LEX : Wrong case sensitivity detected in $t_data\n");
+      exit(23);
+    }
   }
 }
 function var_identify($arg1){
@@ -397,6 +422,7 @@ function var_identify($arg1){
 
   get_token();
   if($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
+    upper_scan($token->data, 0);
     $arg1->addAttribute('type', 'var');
     $arg1[0] = $token->data;
     get_token();
@@ -404,6 +430,10 @@ function var_identify($arg1){
       $arg1[0] .= $token->data;
       get_token();
       if($token->type !== tokenType::identifier){
+        if(!preg_match("/^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$/", $token->data)){
+          fwrite(STDERR,"ERROR : LEX : detected lexical error in: $token->data\n");
+          exit(23);
+        }
         if(!is_keyword(tokenType::identifier)){
           $error_val = True;
         }
@@ -416,7 +446,7 @@ function var_identify($arg1){
 
   if($error_val){
     fwrite(STDERR, "ERROR : SYNTAX : Variable <var> expected : last token: $token->data  $token->type\n");
-    exit();
+    exit(22);
   }
 }
 function symb_identify($arg_order){
@@ -425,6 +455,7 @@ function symb_identify($arg_order){
 
   get_token();
   if($token->type === tokenType::d_int){
+    upper_scan($token->data, 0);
     $arg_order->addAttribute('type','int');
     get_token();
     if($token->type === tokenType::marker){
@@ -437,6 +468,7 @@ function symb_identify($arg_order){
     else $error_val = True;
   }
   elseif($token->type === tokenType::d_string){
+    upper_scan($token->data, 0);
     $arg_order->addAttribute('type','string');
     get_token();
     if($token->type === tokenType::marker){
@@ -454,10 +486,12 @@ function symb_identify($arg_order){
     else $error_val = True;
   }
   elseif($token->type === tokenType::d_bool){
+    upper_scan($token->data, 0);
     $arg_order->addAttribute('type','bool');
     get_token();
     if($token->type === tokenType::marker){
       get_token();
+      upper_scan($token->data, 1);
       if($token->type === tokenType::b_true){
         $arg_order[0] .= $token->data;
       }
@@ -469,10 +503,12 @@ function symb_identify($arg_order){
     else $error_val = True;
   }
   elseif($token->type === tokenType::d_nil){
+    upper_scan($token->data, 0);
     $arg_order->addAttribute('type', 'nil');
     get_token();
     if($token->type === tokenType::marker){
       get_token();
+      upper_scan($token->data, 0);
       if($token->type !== tokenType::d_nil){
         $error_val = True;
       }
@@ -481,12 +517,17 @@ function symb_identify($arg_order){
     else $error_val = True;
   }
   elseif($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
+    upper_scan($token->data, 0);
     $arg_order->addAttribute('type', 'var');
     $arg_order[0] .= $token->data;
     get_token();
     if($token->type === tokenType::marker){
       $arg_order[0] .= $token->data;
       get_token();
+      if(!preg_match("/^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$/", $token->data)){
+        fwrite(STDERR,"ERROR : LEX : detected lexical error in: $token->data\n");
+        exit(23);
+      }
       if($token->type !== tokenType::identifier){
         $error_val = True;
       }
@@ -498,7 +539,7 @@ function symb_identify($arg_order){
 
   if($error_val){
     fwrite(STDERR, "ERROR : SYNTAX : Symbol <symb> expected : last token: $token->data  $token->type\n");
-    exit();
+    exit(22);
   }
 }
 
@@ -531,11 +572,11 @@ while($token->last){
           break;
     case tokenType::i_createframe:
     case tokenType::i_pushframe:
+    case tokenType::i_popframe:
     case tokenType::i_return:
     case tokenType::i_break:
           eol_identify();
           break;
-
     case tokenType::i_label:
           $statp_stats[2]++;
     case tokenType::i_call:
@@ -546,7 +587,7 @@ while($token->last){
           if($token->type !== tokenType::identifier){
             if(!is_keyword(tokenType::identifier)){
               fwrite(STDERR, "ERROR : SYNTAX : Label <label> expected : last token: $token->data  $token->type\n");
-              exit();
+              exit(22);
             }
           }
           $arg1[0] .= $token->data;
@@ -609,7 +650,7 @@ while($token->last){
           if($token->type !== tokenType::identifier){
             if(!is_keyword(tokenType::identifier)){
               fwrite(STDERR, "ERROR : SYNTAX : Expected <label> : last token: $token->data   $token->type\n");
-              exit();
+              exit(22);
             }
           }
           $arg1[0] .= $token->data;
@@ -624,7 +665,7 @@ while($token->last){
           get_token();
           if($token->type < d_string || $token->type > d_bool){
             fwrite(STDERR, "ERROR : SYNTAX : Expected <type> : last token: $token->data  $token->type\n");
-            exit();
+            exit(22);
           }
           $arg2 = $instruction->addChild('arg2');
           $arg2->addAttribute('type', 'type');
@@ -634,7 +675,8 @@ while($token->last){
           $statp_stats[1]--;
           break;
     default:
-      # code...
+      fwrite(STDERR, "ERROR : INSTRUCTION : Unknown instruction detected $token->data\n");
+      exit(22); ##2
       break;
   }
 }
@@ -648,7 +690,7 @@ echo $dom->saveXML();
 
 if($header_check != 1){
   fwrite(STDERR, "ERROR : HEADER : Multiple headers detected\n");
-  exit();
+  exit(22); ##22
 }
 
 foreach ($argv as $key => $value) {
