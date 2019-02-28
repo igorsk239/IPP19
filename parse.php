@@ -1,5 +1,16 @@
 <?php
+/**
+ * @file parse.php
+ * @author Igor Ignác xignac00@fit.vutbr.cz
+ * @name Implementation of Project for IPP 2018/2019
+ * @date 11.2.02019
+ * Faculty: Faculty of Information Technology, Brno University of Technology
+*/
 
+
+/**
+ * Array filled with keywords for language IPPcode19
+ */
 $keywords = array(
   "move", "createframe", "pushframe", "popframe", "defvar", "call", "return",
   "pushs", "pops",
@@ -13,11 +24,37 @@ $keywords = array(
   "true", "false",
   "gf", "lf", "tf"
 );
+
+/**
+* Class for token used in lexical and syntax analysis
+*
+* @access public
+*/
 class tToken {
+  /**
+   * Determines type of token which is used fo syntax analysis
+   * @var type
+ */
   public $type;
+
+  /**
+   * Contains data of particular token
+   * @var data
+ */
   public $data;
+
+  /**
+   * Is set when token is last token created by lexical analysis
+   * @var last
+ */
   public $last;
 }
+
+/**
+* Class that identifies type of identifier
+*
+* @access public
+*/
 class tIdentifier {
   public $stringSearch;
   public $varSearch;
@@ -25,12 +62,28 @@ class tIdentifier {
   public $labelSearch;
   public $markerSearch;
 }
+
+/**
+* Class that identifies if arg statp is present
+*
+* @access public
+*/
 class aStatp {
   public $ispresent;
   public $stat_list;
+
+  /**
+  * Constains arguments given for gathering statistics
+  * @var public
+  */
   public $statistics;
 }
 
+/**
+* Class that defines states of automaton and all possible token types
+*
+* @access public
+*/
 abstract class tokenType {
   const start = 100;
   const header = 101;
@@ -94,6 +147,12 @@ abstract class tokenType {
   const stringStream = 202;
 }
 
+/**
+ * Checks if help argument isn't present multiple times
+ * @param argv  command line arguments
+ * @param argc position of parsed argument
+ * @return on error return exit code 10 else 0
+ */
 function arg_parse($argc, $argv){
 
   if($argc == 2 && ($argv[1] === "--help" || $argv[1] === "-help")){
@@ -101,8 +160,16 @@ function arg_parse($argc, $argv){
             --help Prints help message'."\n";
       exit(0);
   }
+  elseif($argc > 2 && $argv[1] === "--help"){
+    fwrite(STDERR, "ERROR : ARGUMENTS : multiple use of --help argumet\n");
+    exit(10);
+  }
 }
 
+/**
+ * Reads STDIN into array
+ * @return returns array filled with stream from STDIN
+ */
 function read_stream(){
   global $array_stream;
   $array_key = 0;
@@ -114,6 +181,11 @@ function read_stream(){
   $c_commentary = 0;
   $key_val = 0;
 }
+
+/**
+ * Creates indentifier object
+ * @return new identifier object
+ */
 function preset_identifier()
 {
   global $identifier;
@@ -124,11 +196,21 @@ function preset_identifier()
   $identifier->markerSearch = NULL;
 
 }
+
+/**
+ * Creates label object
+ * @return returns array filled with stream from STDIN
+ */
 function preset_label(){
   global $label;
   $label = new tIdentifier();
   $label->isset = NULL;
 }
+
+/**
+ * Creates token
+ * @return returns token used for analysis
+ */
 function init_token(){
   global $token;
   $token = new tToken();
@@ -137,6 +219,9 @@ function init_token(){
   $token->last = True;
 }
 
+/**
+ * Searches for operand match in token
+ */
 function identify_operand(){
   global $token;
   global $identifier;
@@ -157,6 +242,12 @@ function identify_operand(){
       break;
   }
 }
+/**
+ * Checks if any identifier is present in current operand.
+ * Function changes type of operands which name is same as
+ * keyword
+ * @return proper operand type
+ */
 function isset_identif(){
   global $token;
   global $identifier;
@@ -180,6 +271,14 @@ function isset_identif(){
   }
 }
 
+/**
+ * Parses array filled with STDIN and creates token.
+ *
+ * These contain data and proper token type. Through reading the array
+ * function also checks lexical validity of given stream and
+ * creates the token from it. Tokens are later used in syntax analysis
+ * @return token with data and type from tokenType
+ */
 function get_token(){
   global $token;
   global $identifier;
@@ -194,10 +293,13 @@ function get_token(){
   init_token();
 
   while($token_end){
-    if($key_val === array_key_last($array_stream)){   //end of Array works only for PHP7.3!!!!
+    /**
+    * @warning end of Array works only for PHP7.3!!!!
+    */
+    if($key_val === array_key_last($array_stream)){
       $token->last = False;
     }
-
+    /* State automaton for lexical analysis combined with usage of regular expressions */
     switch ($token_type) {
       case tokenType::start:
       {
@@ -220,7 +322,6 @@ function get_token(){
         }
         elseif($array_stream[$key_val] === PHP_EOL){
           $token_type = tokenType::EOL;
-
           break;
         }
         elseif($array_stream[$key_val] === "\t" || $array_stream[$key_val] === " "){ //  //elseif(preg_match("[ \t]", $array_stream[$key_val])){
@@ -240,7 +341,7 @@ function get_token(){
       case tokenType::header:
       {
         while(1){
-          if($array_stream[$key_val] === PHP_EOL || preg_match("/^[ \t]$/",$array_stream[$key_val])){
+          if($array_stream[$key_val] === PHP_EOL || preg_match("/^[ \t#]$/",$array_stream[$key_val])){
             if(preg_match("/^.ippcode19$/", strtolower($token->data))){
               $token->type = tokenType::header;
               $token_end = False;
@@ -355,7 +456,14 @@ else{
 }
 $header_check = 1;
 
-
+/**
+ * Checks if string contains problematic characters
+ *
+ * Any problematic character for xml is replaced with it's
+ * XML friendly format
+ * @param t_data string chain
+ * @return string chain without problematic characters
+ */
 function xml_special_char($t_data){
 
   if(preg_match("/\"/", $t_data)) str_replace("\"", "&quot", $t_data);
@@ -367,6 +475,11 @@ function xml_special_char($t_data){
   return $t_data;
 }
 
+/**
+ * Seaches for keyword appearance in current token
+ * @param type type of keyword which will be assigned on match
+ * @return proper operand type
+ */
 function is_keyword($type){
   global $keywords;
   global $token;
@@ -381,7 +494,16 @@ function is_keyword($type){
   return False;
 }
 
-#   SYNTAX ANALYSIS
+/***************************************************************************************
+*
+*                  SYNTAX ANALYSIS AND GENERATION OF XML OUTPUT
+*
+***************************************************************************************/
+
+/**
+ * Seaches for EndOfLine after each instruction of IPPcode19
+ * @return error code 22 on EOL missing
+ */
 function eol_identify(){
   global $token;
 
@@ -391,6 +513,13 @@ function eol_identify(){
     exit(22);
   }
 }
+
+/**
+ * Scans given token data for proper case sensitivity
+ * @param t_data token data
+ * @param mode is set to 1 only if the search is for boolean values
+ * @return error code 23 on lexical error
+ */
 function upper_scan($t_data, $mode){
   if(!$mode){
     switch ($t_data) {
@@ -416,6 +545,16 @@ function upper_scan($t_data, $mode){
     }
   }
 }
+
+/**
+ * Tries to identify variable in token stream
+
+ * Function is called after occurence of instruction which is
+ * using operands of type <var>. It tries to apply rules for
+ * proper <var> syntax. Function also generates XML element.
+ * @param arg1 defines element of XML for instuct. element
+ * @return instruction element of root XML element
+ */
 function var_identify($arg1){
   global $token;
   $error_val = False;
@@ -449,6 +588,15 @@ function var_identify($arg1){
     exit(22);
   }
 }
+/**
+ * Tries to identify symbol in token stream
+
+ * Function is called after occurence of instruction which is
+ * using operands of type <symb>. It tries to apply rules for
+ * proper <symb> syntax. Function also generates XML element.
+ * @param arg_order defines element of XML for instuct. element
+ * @return instruction element of root XML element
+ */
 function symb_identify($arg_order){
   global $token;
   $error_val = False;
@@ -550,7 +698,7 @@ $statp_stats[1] = 0;
 $statp_stats[2] = 0;
 $statp_stats[3] = 0;
 
-$program = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?>'.'<program></program>');
+$program = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?>'.'<program></program>');  //creating SimpleXML object
 $program->addAttribute('language', 'IPPcode19');
 $instr_ord = 0;
 
@@ -563,7 +711,7 @@ while($token->last){
     $instruction->addAttribute('order', $instr_ord);
     $instruction->addAttribute('opcode', strtoupper($keywords[($token->type)-110]));
   }
-
+  /*  State automaton for syntax analysis */
   switch ($token->type) {
     case tokenType::header:
           eol_identify();
@@ -663,7 +811,7 @@ while($token->last){
           $arg1 = $instruction->addChild('arg1');
           var_identify($arg1);
           get_token();
-          if($token->type < d_string || $token->type > d_bool){
+          if($token->type < tokenType::d_string || $token->type > tokenType::d_bool){
             fwrite(STDERR, "ERROR : SYNTAX : Expected <type> : last token: $token->data  $token->type\n");
             exit(22);
           }
@@ -681,18 +829,20 @@ while($token->last){
   }
 }
 
-$dom = new DOMDocument("1.0");
+/*  Transforming SimpleXML to DOM and removing white space for nice formatting */
+$dom = new DOMDocument("1.0");  //creating DOM object
 $dom->preserveWhiteSpace = false;
 $dom->formatOutput = true;
-$dom->loadXML($program->asXML());
-echo $dom->saveXML();
+$dom->loadXML($program->asXML()); //loading SimpleXML to DOM
+echo $dom->saveXML(); //printing DOM
 
 
-if($header_check != 1){
+if($header_check != 1){ //header is not present or has been found multiple times
   fwrite(STDERR, "ERROR : HEADER : Multiple headers detected\n");
   exit(22); ##22
 }
 
+/*  Parsing arguments for statp */
 foreach ($argv as $key => $value) {
   if(preg_match("/(\-\-stats=)|(\-\-loc)|(\-\-comments)|(\-\-labels)|(\-\-jumps)/",$argv[$key])){
     array_push($v_statp->stat_list, $argv[$key]);
@@ -720,14 +870,17 @@ foreach ($argv as $key => $value) {
     exit(10);
   }
 }
-
+/*
+ * Multiple occurence of argument --statp or occurence of
+ * --loc or --jumps or --labels or --comments without usage of --statp
+*/
 if($v_statp->ispresent !== 1 && !empty($v_statp->stat_list)){
   fwrite(STDERR, "ERROR : STATP : --stats not present\n");
   exit(10);
 }
 elseif($v_statp->ispresent === 1) file_put_contents($file_stat, "");  //clear file contents
 
-foreach ($v_statp->stat_list as $key => $value) {
+foreach ($v_statp->stat_list as $key => $value) { //saving statistics to file
   switch ($value) {
     case '--loc':
       file_put_contents($file_stat, "$statp_stats[1]\n", FILE_APPEND);
@@ -745,4 +898,5 @@ foreach ($v_statp->stat_list as $key => $value) {
       break;
   }
 }
+/* EOF */
  ?>
