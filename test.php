@@ -1,4 +1,11 @@
 <?php
+/**
+ * File: test.php
+ * Author: Igor Ignác xignac00@fit.vutbr.cz
+ * Name: Implementation of Project for IPP 2018/2019
+ * Created: 11.2.02019
+ * Faculty: Faculty of Information Technology, Brno University of Technology
+*/
 /*
 TODO
 parse.php
@@ -14,6 +21,9 @@ parse.php
 - .ippcode19 createframe  - HACK
 -instrukcia na rovnakom riadku ako .ippcode19
 - LF@5a_55-$&amp;%*!?string - HACK
+- prazdne riadky pred .ippcode19
+- string@h@rg@dfg@
+
 
 test.php
 -dokumentacia kodu
@@ -23,12 +33,21 @@ test.php
 - *.rc subory ak nie su vytvorene - chyba navratova hodnota zjavne  - HACK
 - generate HTML on empty dir with tests - HACK
 - add test names to output  - HACK
-- navratove hodnoty testov ktoru brat kedy
+- navratove hodnoty testov ktoru brat kedy  - HACK
 - separatne premenne pre dir testy a celkove uspesnosti
+
+- valid directory checkd  - HACK
+- dir of file doesnt exists - HACK
+- creating files in --directory to proper directory - HACK
 
 */
 
 
+  /**
+  * Class for better argument parsing
+  *
+  * @access public
+  */
   class tArguments {
     public $p_help;
     public $p_dir;
@@ -39,17 +58,45 @@ test.php
     public $p_int_only;
   }
 
+  /**
+   * Prepends given $text2 before $text1
+   * @param text1 string
+   * @param text2 string prepended to text1
+   * @return new string with prepended text1
+   */
   function prepend($text1, $text2) {
      return $text2 . $text1;
   }
 
+  /**
+   * Generates HTML on a successfull test
+   * @param test_counter order of the test
+   * @param test_name name of the test
+   */
   function succ_test_html($test_counter, $test_name){
-    echo "<font size=\"2\" color=\"black\">$test_counter. $test_name TEST :  passed </font><br>\n";
-  }
-  function unsucc_test_html($test_counter, $test_name){
-    echo "<font size=\"2\" color=\"red\">$test_counter. $test_name TEST :  failed </font><br>\n";
+    echo "<font size=\"2\" color=\"green\">$test_counter. $test_name TEST :  passed</font><br>\n";
   }
 
+  /**
+   * Generates HTML on a unsuccessfull test
+   * @param test_counter order of the test
+   * @param test_name name of the test
+   * @param exp_val expected return value of the test
+   * @param returned_val returned val by the test
+   */
+  function unsucc_test_html($test_counter, $test_name, $exp_val, $returned_val){
+    echo "<font size=\"2\" color=\"red\">$test_counter. $test_name TEST :  failed</font><br>\n";
+    if($returned_val === "124"){
+      echo "<font size=\"2\" color=\"black\" style=\"margin-left: 15%\">Program got stucked killed the process</font><br>\n";
+    }
+    echo "<font size=\"2\" color=\"black\" style=\"margin-left: 15%\">Expected return value : $exp_val - returned : $returned_val</font><br>\n";
+  }
+
+  /**
+   * Parses given directory and searches for .src files in it
+   * @param files directory name
+   * @return Array filled with files with .src extension
+   */
   function parse_directory($files){
 
     foreach ($files as $key => $t_name) {
@@ -58,6 +105,16 @@ test.php
     return $srcfiles;
   }
 
+  /**
+   * Runs all tests given in srcfiles
+
+   * For every test also creates .in, .out and .rc file if it doesn't exist
+   * already. Also writes 0 to .rc file. Funtion runs parse.php, interpret.py
+   *
+   * @param srcfiles source files with .src extenstion
+   * @param arg_parse array filled with used command line arguments
+   * @return Array filled with files with .src extension
+   */
   function run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file, $rec){
     global $succ_test;
     global $unsucess_test;
@@ -91,24 +148,24 @@ test.php
         $f_out = fopen(str_replace(".src", ".out", $value), "r");
       }
 
+      /*  Run tests only for parser  */
       if($arg_parse->p_parse_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
         exec("timeout 1 php7.3 $parse_file < $value  2> /dev/null > parse_temp.out ");
         $ret_val = exec("echo $?");
-        if($ret_val === 124){
+        if($ret_val === 124){ //return value on timeout
           $unsucess_test++;
-          unsucc_test_html($test_number, $value);
+          unsucc_test_html($test_number, $value, $ret_val, $rc_val);
         }
-        elseif($ret_val !== $rc_val && ($rc_val > 0 && $rc_val <= 23)){
-          // echo "$rc_val---\n";
+        elseif($ret_val !== $rc_val && ($rc_val >= 0 && $rc_val <= 23)){  //catch return value from range 0 - 23
           $unsucess_test++;
-          unsucc_test_html($test_number, $value);
+          unsucc_test_html($test_number, $value, $ret_val, $rc_val);
         }
         else{
-          exec("java -jar /pub/courses/ipp/jexamxml/jexamxml.jar $f_out parse_temp.out diffs.xml  /D /pub/courses/ipp/jexamxml/options");
+          exec("java -jar /pub/courses/ipp/jexamxml/jexamxml.jar $f_out parse_temp.out diffs.xml  /D /pub/courses/ipp/jexamxml/options"); //compare XML files with JExamXML
           $ret_val = exec("echo $?");
           if($ret_val !== "0"){
             $unsucess_test++;
-            unsucc_test_html($test_number, $value);
+            unsucc_test_html($test_number, $value , $ret_val, $rc_val);
           }
           else {
             //if($arg_parse->p_parse_only){
@@ -118,20 +175,21 @@ test.php
           }
         }
       }
+      /*  Running tests for interpreter */
       elseif($arg_parse->p_int_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
         exec("python3.6 $int_file --source=parse_temp.out --input=$f_in > int_temp.out");
         $ret_val = exec("echo $?");
         if($ret_val !== $rc_val){
           $unsucess_test++;
-          unsucc_test_html($test_number, $value);
+          unsucc_test_html($test_number, $value, $ret_val, $rc_val);
         }
         else{
           $diff_out = "";
-          exec("diff $int_out $f_out > $diff_out");
+          exec("diff $int_out $f_out > $diff_out"); //comparing output with diff
           exec("echo $?");
           if($ret_val !== "0"){
             $unsucess_test++;
-            unsucc_test_html($test_number, $value);
+            unsucc_test_html($test_number, $value, $ret_val, $rc_val);
           }
           else {
             $succ_test++;
@@ -150,7 +208,7 @@ test.php
   $succ_test = 0;
   $unsucess_test = 0;
   $test_number = 0;
-
+  /*  Parsing arguments */
   foreach ($argv as $key => $value) {
     if(substr($value, 0, 15) === "--parse-script="){
       $arg_parse->p_parse_script = True;
@@ -182,17 +240,17 @@ test.php
     }
     else{
       fwrite(STDERR,"ERROR : ARGUMENTS : Unknown argument: $value detected\n");
-      exit();
+      exit(10);
     }
 
   }
 
-  if($arg_parse->p_help && $argc > 2){
+  if($arg_parse->p_help && $argc > 2){  //arguments combined with --help
     fwrite(STDERR, "ERROR : ARGUMENTS : Argument after --help detected\n");
     exit(10);
   }
   elseif($arg_parse->p_int_only && $arg_parse->p_parse_only){
-    fwrite(STDERR, "ERROR : ARGUMENTS : Combination of unrelated arguments detected\n");
+    fwrite(STDERR, "ERROR : ARGUMENTS : Forbidden combination of arguments detected\n");
     exit(10);
   }
   elseif($arg_parse->p_help) {
@@ -237,7 +295,10 @@ test.php
     $dir_file .= "/";
   }
 
-
+  if(!is_dir($dir_file) || !file_exists($dir_file)){
+    fwrite(STDERR,"ERROR : ARGUMENTS : Unknown argument: $value detected\n");
+    exit(11);
+  }
   $files = scandir($dir_file);
   unset($key);
   $subdirs = [];
@@ -251,7 +312,7 @@ test.php
 
     unset($key);
     if(isset($srcfiles)){
-      run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file, 1);
+      run_tests($srcfiles, $arg_parse, $int_file, $parse_file, $dir_file, 0);
     }
     else {
       echo "<font size=\"2\" color=\"red\">Given directory doesn't contain any test</font><br>\n";
@@ -292,7 +353,8 @@ test.php
   echo "</body>\n";
   echo "</html>\n";
 
-  exec("rm -rf parse_temp.out 2>& 1");
+  /*  Clearing temporary files  */
+  exec("rm -rf parse_temp.out Resource.log 2>& 1");
   if(!$arg_parse->p_parse_only){
     exec("rm -rf int_temp.out 2>& 1");
   }
