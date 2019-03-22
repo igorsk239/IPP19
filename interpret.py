@@ -50,12 +50,33 @@ class Instruction:
 
     def get_instr_name(self):
         return self.name
+
     def get_instr_args(self):
         return (self.arg1, self.arg2, self.arg3)
+
+    # def get_single_arg_val(self, position):
+    #     if position == 1:
+    #         return self.arg1Val
+    #     elif position == 2:
+    #         return self.arg2Val
+    #     elif position == 3:
+    #         return self.arg3Val
+    #     else:
+    #         raise ValueError('Unknown position number in method get_single_arg_val\n')
+
     def get_arg_val(self):
         return (self.arg1Val, self.arg2Val, self.arg3Val)
 
+    def get_arg_total(self):
+        t_arg = self.get_arg_val()
+        arg_sum = 0
+        for arg in t_arg:
+            for arg_val in arg:
+                if arg_val is not None:
+                    arg_sum += 1
+        return arg_sum
 
+# Functions for XML parsing
 def parse_xml(tree_ptr):
     root = tree_ptr.getroot()
 
@@ -106,21 +127,106 @@ def parse_type(op_val):
         sys.stderr.write("ERROR : lexical error in given stream : %s <type> expected\n" %op_val)
         exit()
 
-def syntax_check(instr_name):
-    instr_opcodes = (
-        "move", "createframe", "pushframe", "popframe", "defvar", "call", "return",
-        "pushs", "pops",
-        "add", "sub", "mul", "idiv", "lt", "gt", "eq", "and", "or", "not", "int2char", "stri2int",
-        "read", "write",
-        "concat", "strlen", "getchar", "setchar",
-        "type",
-        "label", "jump", "jumpifeq", "jumpifneq", "exit",
-        "dprint", "break"
-    )
+# Functions for syntax analysis
+def arg_count(instr, exp):
 
-    for key_word in instr_opcodes:
-        if key_word == instr_name:
-            # OK
+    if instr.get_arg_total() != exp:
+        sys.stderr.write("ERROR : SYNTAX Wrong number of arguments in %s expected %d\n" %(instr.get_instr_name(), exp))
+        exit()
+    else:
+        return True
+
+def is_symbol(op_val):
+
+    b_symb = False
+
+    if op_val == 'int':
+        b_symb = True
+    elif op_val == 'string':
+        b_symb = True
+    elif op_val == 'bool':
+        b_symb = True
+    elif op_val == 'nil':
+        b_symb = True
+    elif op_val == 'var':
+        b_symb = True
+
+    return b_symb
+
+def syntax_struct(instr, instr_number):
+
+    instr_args = instr.get_arg_val()  # all arguments of instruction
+
+    if 1 <= instr_number <= 5:
+        if instr_args.count(None) != len(instr_args):
+            sys.stderr.write("ERROR : SYNTAX Unknown operand in instruction: %s\n" %instr.get_instr_name())
+            exit()
+
+    elif 6 <= instr_number <= 8:
+        if instr.get_arg_total() != 1 or next(iter(instr_args[0])) != 'label':
+            sys.stderr.write("ERROR : SYNTAX Wrong number of arguments or argument type in %s\n" %instr.get_instr_name())
+            exit()
+
+    elif 9 <= instr_number <= 10:
+        if instr.get_arg_total() != 1 or next(iter(instr_args[0])) != 'var':
+            sys.stderr.write("ERROR : SYNTAX Wrong number of arguments or argument type in %s\n" %instr.get_instr_name())
+            exit()
+
+    elif 11 <= instr_number <= 14:
+        arg_count(instr, 1)
+        if not is_symbol(next(iter(instr_args[0]))):
+            sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
+            exit()
+
+    elif 15 <= instr_number <= 19:
+        arg_count(instr, 2)
+        if next(iter(instr_args[0])) != 'var' or not is_symbol(next(iter(instr_args[1]))):
+            sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
+            exit()
+
+    elif 20 <= instr_number <= 32:
+        arg_count(instr, 3)
+        if next(iter(instr_args[0])) != 'var' or not is_symbol(next(iter(instr_args[1]))) or not is_symbol(next(iter(instr_args[2]))):
+            sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
+            exit()
+
+    elif 33 <= instr_number <= 34:
+        if next(iter(instr_args[0])) != 'label' or not is_symbol(next(iter(instr_args[1]))) or not is_symbol(next(iter(instr_args[2]))):
+            sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
+            exit()
+
+    elif instr_number == 35:
+        arg_count(instr, 1)
+        if instr_args[0].get('label') is None or instr_args[0].get('type') is None:
+            sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
+            exit()
+
+
+def syntax_check(instr):
+    instr_opcodes = {
+        "createframe": 1, "pushframe": 2, "popframe": 3, "return": 4, "break": 5,
+        "label": 6, "jump": 7, "call": 8,
+        "defvar": 9, "pops": 10,
+        "pushs": 11, "write": 12,"exit": 13, "dprint": 14,
+        "move": 15, "int2char": 16, "strlen": 17, "type": 18, "not": 19,
+        "add": 20, "sub": 21, "mul": 22, "idiv": 23, "lt": 24, "gt": 25, "eq": 26, "and": 27, "or": 28, "stri2int": 29, "concat": 30,  "getchar": 31, "setchar": 32,
+        "jumpifeq": 33, "jumpifneq": 34,
+        "read": 35
+    }
+
+    op_code = instr.get_instr_name()
+
+    # loop over keywords to find if instr exists
+    found = False
+    for key_word, instr_number in instr_opcodes.items():
+        if key_word.upper() == op_code.upper():
+            found = True
+            break
+    if not found:
+        sys.stderr.write("ERROR : INSTRUCTION unknown name of instruction : %s\n" %op_code)
+        exit()
+
+    syntax_struct(instr, instr_number)
 
 
 # Argument parse
@@ -207,7 +313,7 @@ for instr in root.iter('instruction'):
 for instr in instruct_list:
 
     args = instr.get_arg_val()
-    # syntax_check() -----------------------------------------
+    syntax_check(instr)
     # loop over tuple of instruction's arguments
     for arg_n in args:
         # loop over dictionary == arg values
