@@ -10,6 +10,11 @@ import pprint
 
 # TODO read from stdin not only from file
 
+# GF global frame structured as dictionary
+global_frame = []
+# local_frame
+# temporary_frame
+
 class Args:
     def __init__(self, p_source, p_input):
         self.source = p_source
@@ -25,44 +30,38 @@ class Args:
 class Instruction:
     def __init__(self, Instruction):
         self.name = (Instruction.attrib).get('opcode')
+        self.line = (Instruction.attrib).get('order')    # position line in xml
         self.arg1 = Instruction.find('arg1')
         self.arg2 = Instruction.find('arg2')
         self.arg3 = Instruction.find('arg3')
 
         if self.arg1 is not None:
             self.arg1Val = {self.arg1.attrib.get('type'): self.arg1.text}
-            # pprint.pprint(self.arg1Val)
+
         else:
             self.arg1Val = {None: None}
 
         if Instruction.find('arg2') is not None:
             self.arg2Val = {self.arg2.attrib.get('type'): self.arg2.text}
-            # pprint.pprint(self.arg2Val)
+
         else:
             self.arg2Val = {None: None}
 
         if self.arg3 is not None:
             self.arg3Val = {self.arg3.attrib.get('type'): self.arg3.text}
-            # pprint.pprint(self.arg3Val)
+
         else:
             self.arg3Val = {None: None}
-        # sys.stdout.write("args:\n%s\n%s\n%s\n" %(self.arg1, self.arg2, self.arg3))
 
     def get_instr_name(self):
         return self.name
 
+    def get_instr_pos(self):
+        return self.line
+
     def get_instr_args(self):
         return (self.arg1, self.arg2, self.arg3)
 
-    # def get_single_arg_val(self, position):
-    #     if position == 1:
-    #         return self.arg1Val
-    #     elif position == 2:
-    #         return self.arg2Val
-    #     elif position == 3:
-    #         return self.arg3Val
-    #     else:
-    #         raise ValueError('Unknown position number in method get_single_arg_val\n')
 
     def get_arg_val(self):
         return (self.arg1Val, self.arg2Val, self.arg3Val)
@@ -75,6 +74,17 @@ class Instruction:
                 if arg_val is not None:
                     arg_sum += 1
         return arg_sum
+
+    def get_specific_arg(self, position):
+        if position == 1:
+            return self.arg1Val
+        elif position == 2:
+            return self.arg2Val
+        elif position == 3:
+            return self.arg3Val
+        else:
+            raise ValueError('Unknown position number in method get_specific_arg\n')
+
 
 # Functions for XML parsing
 def parse_xml(tree_ptr):
@@ -126,6 +136,8 @@ def parse_type(op_val):
     if re.search('int|string|bool', op_val) is None:
         sys.stderr.write("ERROR : lexical error in given stream : %s <type> expected\n" %op_val)
         exit()
+
+################################################################################
 
 # Functions for syntax analysis
 def arg_count(instr, exp):
@@ -227,7 +239,74 @@ def syntax_check(instr):
         exit()
 
     syntax_struct(instr, instr_number)
+################################################################################
 
+def handle_move(instr):
+    global global_frame
+
+    # first argument <var> checking for its existance in global frame
+    a_var = instr.get_specific_arg(1)
+    if a_var.get('var') not in global_frame:
+        pprint.pprint(global_frame)
+        sys.stderr.write("ERROR : SEMANTIC : Unknown variable %s, need to be definied before being use\n" %a_var.get('var'))
+        exit()
+
+def handle_defvar(instr):
+    global global_frame
+    global local_frame
+    global temporary_frame
+
+    a_var = instr.get_specific_arg(1)
+
+    if a_var.get('var')[:3] == 'GF@' and a_var.get('var') in global_frame:
+        sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing variable %s\n" %a_var.get('var'))
+        exit()
+    else:
+        # if a_var.get('var')[:3] == 'GF@':
+        global_frame.append(a_var.get('var'))
+
+
+    if a_var.get('var')[:3] == 'LF@':
+        local_frame.append(a_var.get('var'))
+    elif a_var.get('var')[:3] == 'TF@':
+        temporary_frame.append(a_var.get('var'))
+
+def handle_createframe(instr):
+
+    # Check if temporary frame already exists
+    if 'temporary_frame' not in globals():
+        global temporary_frame
+        temporary_frame = []
+    # delete existing temporary frame items
+    else:
+        temporary_frame.clear()
+
+def handle_pushframe(instr):
+    global temporary_frame
+
+    # local frame does not exits yet
+    if 'local_frame' not in globals():
+        global local_frame
+        local_frame = []    # init LF as stack
+    else:
+        if 'temporary_frame' not in globals():
+            sys.stderr.write("ERROR : SEMANTIC : On line %d Trying to reach an undefinied frame in instr %s" %(instr.get_instr_pos(), instr.get_instr_name()))
+            exit(55)
+        local_frame.append(temporary_frame)
+        del temporary_frame # deleting TF
+
+def handle_popframe(instr):
+    global temporary_frame
+    global local_frame
+
+    # local frame doesn't exists or it's empty
+    if 'local_frame' not in globals() or not local_frame:
+        sys.stderr.write("ERROR : SEMANTIC : On line %d Trying to move local frame, but frame is not definied in instruction: %s" %(instr.get_instr_pos(), instr.get_instr_name()))
+        exit(55)
+    # move local frame to temporary frame
+    else:
+        temporary_frame.clear()
+        temporary_frame = local_frame
 
 # Argument parse
 arg_parse = Args("None", "None")
@@ -313,10 +392,9 @@ for instr in root.iter('instruction'):
 for instr in instruct_list:
 
     args = instr.get_arg_val()
-    syntax_check(instr)
     # loop over tuple of instruction's arguments
     for arg_n in args:
-        # loop over dictionary == arg values
+        # loop over dictionary == arg values and LEXICAL ANALYSIS
         for i_type, i_val in arg_n.items():
 
             if i_type == 'var' or i_type == 'label':
@@ -338,3 +416,15 @@ for instr in instruct_list:
             else:
                 sys.stderr.write("ERROR : Unknown argument type: %s of instruction %s\n" %(i_type, instr.get_instr_name()))
                 exit()
+
+    # SYNTAX ANALYSIS
+    syntax_check(instr)
+
+    print (instr.get_instr_name())
+
+    if (instr.get_instr_name()).upper() == 'MOVE':
+        handle_move(instr)
+    elif (instr.get_instr_name()).upper() == 'DEFVAR':
+        handle_defvar(instr)
+    elif (instr.get_instr_name()).upper() == 'CREATEFRAME':
+        handle_createframe(instr)
