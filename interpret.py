@@ -11,10 +11,13 @@ import pprint
 # TODO read from stdin not only from file
 # TODO stack pop determine type of popped value -> set variable type
 
+# TODO jumo return number or number--   <- must be --
+
 # GF global frame structured as dictionary
 global_frame = []
 # Data stack used by stack instructions
 data_stack = []
+labels = []
 # local_frame
 # temporary_frame
 
@@ -117,10 +120,16 @@ def parse_xml(tree_ptr):
 
 # Functions for lexical analysis of given instruction operands
 def parse_var(op_val):
+    # pprint.pprint(op_val[3:])
     if re.search('GF@|LF@|TF@', op_val[:3]) is None:
         sys.stderr.write("ERROR : lexical error in given stream : %s frame expected\n" %op_val[:3])
         exit()
     if re.search('^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$', op_val[3:]) is None:
+        sys.stderr.write("ERROR : lexical error in given stream : %s identifier expected\n" %op_val)
+        exit()
+
+def parse_label(op_val):
+    if re.search('^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$', op_val) is None:
         sys.stderr.write("ERROR : lexical error in given stream : %s identifier expected\n" %op_val)
         exit()
 
@@ -187,7 +196,8 @@ def syntax_struct(instr, instr_number):
     instr_args = instr.get_arg_val()  # all arguments of instruction
 
     if 1 <= instr_number <= 5:
-        if instr_args.count(None) != len(instr_args):
+        # if instr_args.count(None) != len(instr_args):
+        if instr.get_arg_total() != 0:
             sys.stderr.write("ERROR : SYNTAX Unknown operand in instruction: %s\n" %instr.get_instr_name())
             exit()
 
@@ -225,8 +235,8 @@ def syntax_struct(instr, instr_number):
             exit()
 
     elif instr_number == 35:
-        arg_count(instr, 1)
-        if instr_args[0].get('label') is None or instr_args[0].get('type') is None:
+        arg_count(instr, 2)
+        if instr_args[0].get('var') is None or instr_args[1].get('type') is None:
             sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
             exit()
 
@@ -516,6 +526,9 @@ def operation_type(symb, instr):
 
     if symb.get('var') is not None:
         var_v = var_is_definied(symb.get('var'))
+        if not hasattr(var_v, 'type'):
+            sys.stderr.write("ERROR : SEMANTIC : Trying to work with undefinied value in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+            exit()
         return var_v.get_type()
 
     elif symb.get('int') is not None:
@@ -711,9 +724,318 @@ def handle_stri2_int(instr):
     var2_val = check_single_symb(instr, a_symb1, 'string')
     var3_val = check_single_symb(instr, a_symb2, 'int')
 
-    if len(str(var2_val)) < var3_val or var3_val < 0:   # ------------ Write into documentation (-1 not supported)
+    if len(str(var2_val)) < int(var3_val) or int(var3_val) < 0:   # ------------ Write into documentation (-1 not supported)
         sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
         exit(58)
+    else:
+        res = ord(var2_val[var3_val])
+        var1.set_value(res, 'int')
+
+# Input-output instructions
+def handle_read(instr):
+
+    a_var = instr.get_specific_arg(1)   # <var>
+    symb = instr.get_specific_arg(2)  # <symb>
+
+    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    symb_val = next(iter(symb.values()))
+
+    # load input from stdin
+    res = input()
+
+    if symb_val == 'int':
+        if res is not None:
+            # try for valid integer
+            try:
+                res = int(res)
+            except ValueError as e:
+                res = int(0)
+        else:
+            res = int(0)
+
+    elif symb_val == 'bool':
+        if res.lower() == 'true':
+            res = 'true'
+        else:
+            res = 'false'
+    elif symb_val == 'string' and res is None:
+        res = ''
+
+    var1.set_value(res, symb_val)
+    # print ("--------------")
+    # print (var1.get_value())
+    # print (var1.get_type())
+    # print (var1.get_name())
+
+def handle_write(instr):
+
+    symb = instr.get_specific_arg(1)  # <symb>
+    operand_type = operation_type(symb, instr)
+
+    symb_val = check_single_symb(instr, symb, operand_type)
+
+    if operand_type == 'bool':
+        if symb_val == 'true':
+            print ('true', end='')
+        elif symb_val == 'false':
+            print ('false', end='')
+    else:
+        print(symb_val, end='')
+
+# Instructions for chains
+def handle_concat(instr):
+
+    a_var = instr.get_specific_arg(1)   # <var>
+    a_symb1 = instr.get_specific_arg(2)  # <symb1>
+    a_symb2 = instr.get_specific_arg(3)  # <symb2>
+
+    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+
+    operands = check_base_arith(instr, a_symb1, a_symb2, 'string')
+
+    res = operands[0] + operands[1]
+
+    var1.set_value(res, 'string')
+
+def handle_strlen(instr):
+
+    a_var = instr.get_specific_arg(1)   # <var>
+    a_symb1 = instr.get_specific_arg(2)  # <symb1>
+
+    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    # operand_type = operation_type(a_symb1, instr)
+
+    symb_val = check_single_symb(instr, a_symb1, 'string')  #----------------support int, etc?
+
+    res = len(symb_val)
+
+    var1.set_value(res, 'int')
+
+def handle_getchar(instr):
+
+    a_var = instr.get_specific_arg(1)   # <var>
+    a_symb1 = instr.get_specific_arg(2)  # <symb1>
+    a_symb2 = instr.get_specific_arg(3)  # <symb2>
+
+    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+
+    var2_val = check_single_symb(instr, a_symb1, 'string')
+    var3_val = check_single_symb(instr, a_symb2, 'int')
+
+    if len(str(var2_val)) < int(var3_val) or int(var3_val) < 0:   # ------------ Write into documentation (-1 not supported)
+        sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
+        exit(58)
+    else:
+        res = var2_val[var3_val]
+        var1.set_value(res, 'string')
+
+def handle_set_char(instr):
+
+    a_var = instr.get_specific_arg(1)   # <var>
+    a_symb1 = instr.get_specific_arg(2)  # <symb1>
+    a_symb2 = instr.get_specific_arg(3)  # <symb2>
+
+    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+
+    var2_val = check_single_symb(instr, a_symb1, 'int')
+    var3_val = check_single_symb(instr, a_symb2, 'string')
+
+    res = var1.get_value()
+    if int(var2_val) < 0 or len(res) < int(var2_val):
+        sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
+        exit(58)
+    else:
+        # <symb2> contains more than 1 character
+        if len(var3_val) > 1:
+            var3_val = var3_val[1]
+
+        # convert to list
+        res = list(res)
+        # change character on given index
+        res[int(var2_val)] = var3_val
+        # change back to string
+        res = "".join(res)
+
+        var1.set_value(res, 'string')
+
+    # pprint.pprint(var1.get_value())
+
+# Work with types
+def handle_type(instr):
+    global global_frame
+    global local_frame
+
+    a_var = instr.get_specific_arg(1)   # <var>
+    symb = instr.get_specific_arg(2)  # <symb>
+
+    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+
+    if symb.get('var') is not None:
+        a_var = var_is_definied(symb.get('var'))
+        if not hasattr(a_var, 'type'):
+            res = ''
+        else:
+            res = a_var.get_type()
+
+    elif symb.get('int') is not None:
+        res = 'int'
+
+    elif symb.get('string') is not None:
+        res = 'string'
+
+    elif symb.get('bool') is not None:
+        res = 'bool'
+
+    elif symb.get('nil') is not None:
+        res = 'nil'
+
+    var1.set_value(res, 'string')
+
+    # pprint.pprint(var1.get_value())
+
+# def handle_label(instr):
+#     # global labels
+#     #
+#     # label = instr.get_specific_arg(1)  # <label>
+#     # label_name = next(iter(label.values()))
+#     #
+#     # for name, pos in labels:
+#     #     if name == label_name:
+#     #         sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+#     #         exit(52)
+#     #
+#     # labels.append((label_name,instr.get_instr_pos()))
+#     #
+#     # pprint.pprint(labels)
+#     pass
+
+# Flow control instructions
+def handle_jump(instr):
+    global labels
+
+    label = instr.get_specific_arg(1)  # <label>
+    label_name = next(iter(label.values()))
+
+    for name, pos in labels:
+        if name == label_name:
+            return int(pos)
+
+    sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+    exit(52)
+
+def handle_jumpifeq(instr, act_pos):
+
+    label = instr.get_specific_arg(1)  # <label>
+    label_name = next(iter(label.values()))
+
+    a_symb1 = instr.get_specific_arg(2)  # <symb1>
+    a_symb2 = instr.get_specific_arg(3)  # <symb2>
+
+    # Indicates if label exists
+    exists = False
+
+    for name, pos in labels:
+        if name == label_name:
+            exists = True
+            break
+
+    if not exits:
+        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+        exit(52)
+    else:
+
+        operand1_type = operation_type(a_symb1, instr)
+        operand2_type = operation_type(a_symb2, instr)
+
+        if operand1_type != operand2_type:
+            sys.stderr.write("ERROR : SEMANTIC : Operands type do not match in instruction: %s on line: %s" %(instr.get_instr_name(), instr.get_instr_pos()))
+            exit(53)
+
+        symb1_val = check_single_symb(instr, a_symb1, operand1_type)
+        symb2_val = check_single_symb(instr, a_symb2, operand1_type)
+
+        # Compare values - can be done by EQ instruction
+        if symb1_val == symb2_val:
+            return int(pos)
+        else:
+            return int(act_pos)
+
+def jumpifneq(instr, act_pos):
+
+    label = instr.get_specific_arg(1)  # <label>
+    label_name = next(iter(label.values()))
+
+    a_symb1 = instr.get_specific_arg(2)  # <symb1>
+    a_symb2 = instr.get_specific_arg(3)  # <symb2>
+
+    # Indicates if label exists
+    exists = False
+
+    for name, pos in labels:
+        if name == label_name:
+            exists = True
+            break
+
+    if not exits:
+        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+        exit(52)
+    else:
+
+        operand1_type = operation_type(a_symb1, instr)
+        operand2_type = operation_type(a_symb2, instr)
+
+        if operand1_type != operand2_type:
+            sys.stderr.write("ERROR : SEMANTIC : Operands type do not match in instruction: %s on line: %s" %(instr.get_instr_name(), instr.get_instr_pos()))
+            exit(53)
+
+        symb1_val = check_single_symb(instr, a_symb1, operand1_type)
+        symb2_val = check_single_symb(instr, a_symb2, operand1_type)
+
+        # Compare values - can be done by EQ instruction
+        if symb1_val != symb2_val:
+            return int(pos)
+        else:
+            return int(act_pos)
+
+def handle_exit(instr):
+
+    symb = instr.get_specific_arg(2)  # <symb>
+
+    symb_val = (instr, symb, 'int')
+
+    if 0 < symb_val < 50:
+        exit(symb_val)
+    else:
+        sys.stderr.write("ERROR : SEMANTIC : Invalid value: %s in function %s on line: %s\n" %(symb_val, instr.get_instr_name(), instr.get_instr_pos()))
+        exit(57)
+
+# Debug instructions
+def handle_dprint(instr):
+
+    symb = instr.get_specific_arg(1)  # <symb>
+    operand_type = operation_type(symb, instr)
+
+    symb_val = check_single_symb(instr, symb, operand_type)
+
+    sys.stderr.write("%s" %symb_val)    # new line or not ? ------------------------------------------
+
+def handle_break(instr):
+
+    global global_frame
+    global local_frame
+
+    sys.stderr.write("Currently at instruction %s on line %s\n\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+    sys.stderr.write("Instructions parsed: %d\n\n" %(int(instr.get_instr_pos()) - 1))
+    sys.stderr.write("Global frame consists of:\n\n")
+    for item in global_frame:
+        sys.stderr.write("Variable name: %s value: %s\n" %(item.get_name(), item.get_value()))
+    sys.stderr.write("\nLocal frame consists of: \n\n")
+    if 'local_frame' in globals():
+        for item in local_frame:
+            sys.stderr.write("Variable name: %s value: %s\n" %(item.get_name(), item.get_value()))
+    else:
+        sys.stderr.write("Local frame is empty\n")
+
 
 ################################################################################
 
@@ -797,16 +1119,41 @@ for instr in root.iter('instruction'):
     act = Instruction(instr)
     instruct_list.append(act)   # insert all instructions into list
 
-# loop over instruction list
-for instr in instruct_list:
+    # Store all labels
+    if(act.get_instr_name() == 'LABEL'):
+        label = act.get_specific_arg(1)
+        label_name = next(iter(label.values()))
 
+        for name, pos in labels:
+            if name == label_name:
+                sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing label: %s in on line: %s\n" %(label_name, act.get_instr_pos()))
+                exit(52)
+        # Store label name and position as tuple
+        labels.append(( label_name, act.get_instr_pos() ))
+
+# Label duplicates
+# label_redef = set([x for x in labels if labels.count(x) > 1])
+# if label_redef is not None:
+#     sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing label\n")
+#     exit(52)
+
+
+
+# loop over instruction list
+
+# for instr in instruct_list:
+act_pos = 0
+
+while int(act_pos) < len(instruct_list):
+    instr = instruct_list[act_pos]
+    act_pos += 1
     args = instr.get_arg_val()
     # loop over tuple of instruction's arguments
     for arg_n in args:
         # loop over dictionary == arg values and LEXICAL ANALYSIS
         for i_type, i_val in arg_n.items():
 
-            if i_type == 'var' or i_type == 'label':
+            if i_type == 'var':
                 parse_var(i_val)
             elif i_type == 'int':
                 parse_int(i_val)
@@ -831,17 +1178,23 @@ for instr in instruct_list:
 
     print (instr.get_instr_name())
 
-    # Work with frames and function call instruct.
+    # Work with frames
     if (instr.get_instr_name()).upper() == 'MOVE':
         handle_move(instr)
-    elif (instr.get_instr_name()).upper() == 'DEFVAR':
-        handle_defvar(instr)
     elif (instr.get_instr_name()).upper() == 'CREATEFRAME':
         handle_createframe(instr)
     elif (instr.get_instr_name()).upper() == 'PUSHFRAME':
         handle_pushframe(instr)
     elif (instr.get_instr_name()).upper() == 'POPFRAME':
         handle_popframe(instr)
+    elif (instr.get_instr_name()).upper() == 'DEFVAR':
+        handle_defvar(instr)
+
+    # Function call instructions
+    elif (instr.get_instr_name()).upper() == 'CALL':
+        handle_call(instr)
+    elif (instr.get_instr_name()).upper() == 'RETURN':
+        handle_return(instr)
 
     # Stack instructions
     elif (instr.get_instr_name()).upper() == 'PUSHS':
@@ -866,9 +1219,58 @@ for instr in instruct_list:
         handle_gt(instr)
     elif (instr.get_instr_name()).upper() == 'EQ':
         handle_eq(instr)
+
+    # Logic instructions
     elif (instr.get_instr_name()).upper() == 'AND':
         handle_and(instr)
     elif (instr.get_instr_name()).upper() == 'OR':
         handle_or(instr)
     elif (instr.get_instr_name()).upper() == 'NOT':
         handle_not(instr)
+
+    # Convert instructions
+    elif (instr.get_instr_name()).upper() == 'INT2CHAR':
+        handle_int2_char(instr)
+    elif (instr.get_instr_name()).upper() == 'STRI2INT':
+        handle_stri2_int(instr)
+
+    # Input-output instructions
+    elif (instr.get_instr_name()).upper() == 'READ':
+        handle_read(instr)
+    elif (instr.get_instr_name()).upper() == 'WRITE':
+        handle_write(instr)
+
+    # Work with chains
+    elif (instr.get_instr_name()).upper() == 'CONCAT':
+        handle_concat(instr)
+    elif (instr.get_instr_name()).upper() == 'STRLEN':
+        handle_strlen(instr)
+    elif (instr.get_instr_name()).upper() == 'GETCHAR':
+        handle_getchar(instr)
+    elif (instr.get_instr_name()).upper() == 'SETCHAR':
+        handle_set_char(instr)
+
+    # Work with types
+    elif (instr.get_instr_name()).upper() == 'TYPE':
+        handle_type(instr)
+
+    # Flow control instructions
+    elif (instr.get_instr_name()).upper() == 'LABEL':
+        # handle_label(instr)
+        # Label instruction is handled above in previous semantic check for labels in source
+        pass
+    elif (instr.get_instr_name()).upper() == 'EXIT':
+        handle_exit(instr)
+    elif (instr.get_instr_name()).upper() == 'JUMP':
+        # Jump can change the flow of processing instructions by jumping on label
+        act_pos = handle_jump(instr)
+    elif (instr.get_instr_name()).upper() == 'JUMPIFEQ':
+        act_pos = handle_jumpifeq(instr, act_pos)
+    elif (instr.get_instr_name()).upper() == 'JUMPIFNEQ':
+        act_pos = handle_jumpifneq(instr)
+
+    # Debug instructions
+    elif (instr.get_instr_name()).upper() == 'DPRINT':
+            handle_dprint(instr)
+    elif (instr.get_instr_name()).upper() == 'BREAK':
+            handle_break(instr)
