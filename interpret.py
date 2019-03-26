@@ -10,14 +10,20 @@ import pprint
 
 # TODO read from stdin not only from file
 # TODO stack pop determine type of popped value -> set variable type
+# TODO sort instructions by order HACK
+# TODO sort arguments by order  HACK
 
-# TODO jumo return number or number--   <- must be --
+# TODO jump return number or number--   <- must be --
 
 # GF global frame structured as dictionary
 global_frame = []
 # Data stack used by stack instructions
 data_stack = []
+# Stack used for storage of position of intern counter
+call_stack = []
+# List of labels present in source code
 labels = []
+
 # local_frame
 # temporary_frame
 
@@ -105,6 +111,17 @@ class Instruction:
         else:
             raise ValueError('Unknown position number in method get_specific_arg\n')
 
+    def update_val(self, arg, new_val):
+        for i_arg in self.get_arg_val():
+            if arg is self.arg1Val:
+                for key, value in self.arg1Val.items():
+                    self.arg1Val[key] = new_val
+            elif arg is self.arg2Val:
+                for key, value in self.arg2Val.items():
+                    self.arg2Val[key] = new_val
+            elif arg is self.arg3Val:
+                for key, value in self.arg3Val.items():
+                    self.arg3Val[key] = new_val
 
 # Functions for XML parsing
 def parse_xml(tree_ptr):
@@ -142,6 +159,14 @@ def parse_string(op_val):
     if re.search('^([\u0024-\u005B]|[\u0021\u0022]|[\u005D-\uFFFF]|[ěščřžýáíéóúůďťňĎŇŤŠČŘŽÝÁÍÉÚŮa-zA-Z0-9]|([\\\\][0-9]{3})?)*$', op_val) is None:
         sys.stderr.write("ERROR : lexical error in given stream : %s <string> expected\n" %op_val)
         exit()
+    else:
+        # Convert escape sequences to unicode character
+        matches = re.findall('[\\\\][0-9]{3}', op_val)
+        if len(matches) != 0 :
+            for m in matches:
+                # Replace
+                op_val = op_val.replace(m , chr(int(m[1:])))
+        return op_val
 
 def parse_bool(op_val):
     if re.search('false|true', op_val) is None:
@@ -263,13 +288,16 @@ def syntax_check(instr):
             break
     if not found:
         sys.stderr.write("ERROR : INSTRUCTION unknown name of instruction : %s\n" %op_code)
-        exit()
+        exit(32)
 
     syntax_struct(instr, instr_number)
 ################################################################################
-def var_is_definied(var):
+def var_is_definied(var, instr):
     global global_frame
     global local_frame
+    global temporary_frame
+
+    frame_error = False
 
     # search the global frame
     for name in global_frame:
@@ -282,10 +310,25 @@ def var_is_definied(var):
         for name in local_frame:
             if name.get_name() == var:
                 return name
-    # not found
-    else:
-        sys.stderr.write("ERROR : SEMANTIC : Undefinied variable %s\n" %var)
-        exit()
+
+    elif 'local_frame' not in globals() and var[:3] == "LF@":
+        frame_error = True
+
+    # Search in temporary_frame
+    if 'temporary_frame' in globals():
+        for name in temporary_frame:
+            if name.get_name() == var:
+                return name
+    elif 'local_frame' not in globals() and var[:3] == "LF@":
+        frame_error = True
+
+    # Frame not found
+    if frame_error:
+        sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
+        exit(55)
+
+    sys.stderr.write("ERROR : SEMANTIC : Undefinied variable: %s in instruction: %s\n" %(var, instr.get_instr_name()))
+    exit()
 
 def handle_move(instr):
     global global_frame
@@ -293,12 +336,12 @@ def handle_move(instr):
     # first argument <var> checking for its existance in global frame
     a_var = instr.get_specific_arg(1)   # <var>
     a_symb = instr.get_specific_arg(2)  # <symb>
-    var1 = var_is_definied(a_var.get('var'))    # var object
+    var1 = var_is_definied(a_var.get('var'), instr)    # var object
     # pprint.pprint(list(a_symb.keys())[0])
 
     # <var> <var> situation
     if a_symb.get('var') is not None:
-        var2 = var_is_definied(a_symb.get('var'))
+        var2 = var_is_definied(a_symb.get('var'), instr)
 
         # move value from var2 to var1
         var1.set_value(var2.get_value(), var2.get_type())
@@ -307,31 +350,53 @@ def handle_move(instr):
         # value of <symb> into var1
         var1.set_value(next(iter(a_symb.values())), list(a_symb.keys())[0])
 
-    # if a_var.get('var') not in global_frame:
-    #     pprint.pprint(global_frame)
-    #     sys.stderr.write("ERROR : SEMANTIC : Unknown variable %s, need to be definied before being use\n" %a_var.get('var'))
-    #     exit()
-
 def handle_defvar(instr):
     global global_frame
     global local_frame
     global temporary_frame
 
     a_var = instr.get_specific_arg(1)
+    redefinition = False
 
-    if a_var.get('var')[:3] == 'GF@' and a_var.get('var') in global_frame:
-        sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing variable %s\n" %a_var.get('var'))
-        exit()
-    else:
-        # if a_var.get('var')[:3] == 'GF@':
+    # Check variable frame
+    if a_var.get('var')[:3] == 'GF@':
+        # Loop over global frame to check for redefinition
+        for gf_var in global_frame:
+            if gf_var.get_name() == a_var.get('var'):
+                redefinition = True
+
+        # If variable is not definied yet - define
         new_var = Variable(a_var.get('var'))
         global_frame.append(new_var)
 
+    if a_var.get('var')[:3] == 'LF@':
+        if 'local_frame' in globals():
+            act_lf = local_frame[-1]
+            for name in local_frame:
+                if name.get_name() == a_var.get('var'):
+                    redefinition = True
+        else:
+            sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
+            exit(55)
+        new_var = Variable(a_var.get('var'))
+        # Append to active local frame
+        act_lf.append(new_var)
+        # Insert active back
+        local_frame[-1] = act_lf
 
-    if a_var.get('var')[:3] == 'LF@':   # fix local frame must first pop then store
-        local_frame.append(a_var.get('var'))
     elif a_var.get('var')[:3] == 'TF@':
+        if 'temporary_frame' in globals():
+            for name in temporary_frame:
+                if name.get_name() == a_var.get('var'):
+                    redefinition = True
+        else:
+            sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
+            exit(55)
         temporary_frame.append(a_var.get('var'))
+
+    if redefinition:
+        sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing variable %s\n" %a_var.get('var'))
+        exit()
 
 def handle_createframe(instr):
 
@@ -342,6 +407,7 @@ def handle_createframe(instr):
     # delete existing temporary frame items
     else:
         temporary_frame.clear()
+        temporary_frame = []
 
 def handle_pushframe(instr):
     global temporary_frame
@@ -352,7 +418,7 @@ def handle_pushframe(instr):
         local_frame = []    # init LF as stack
     else:
         if 'temporary_frame' not in globals():
-            sys.stderr.write("ERROR : SEMANTIC : On line %d Trying to reach an undefinied frame in instr %s" %(instr.get_instr_pos(), instr.get_instr_name()))
+            sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
             exit(55)
         local_frame.append(temporary_frame)
         del temporary_frame # deleting TF
@@ -363,17 +429,42 @@ def handle_popframe(instr):
 
     # local frame doesn't exists or it's empty
     if 'local_frame' not in globals() or not local_frame:
-        sys.stderr.write("ERROR : SEMANTIC : On line %d Trying to move local frame, but frame is not definied in instruction: %s" %(instr.get_instr_pos(), instr.get_instr_name()))
+        sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to move local frame, but frame is not definied in instruction: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
         exit(55)
     # move local frame to temporary frame
     else:
         temporary_frame.clear()
         temporary_frame = local_frame
 
-def handle_call(instr):
-    pass
+
+# Function call instructions
+def handle_call(instr, act_pos):
+    global labels
+    global call_stack
+
+    label = instr.get_specific_arg(1)  # <label>
+    label_name = next(iter(label.values()))
+    exist = False
+
+    for name, pos in labels:
+        if name == label_name:
+            exists = True
+            break
+
+    if not exist:
+        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+        exit(52)
+    else:
+        # Save incremented actual position
+        call_stack.append(int(act_pos) + 1)
+        # Jump on label
+        return pos
+
 def handle_return(instr):
-    pass
+    global call_stack
+
+    # Take out position from call stack and jump on it
+    return call_stack.pop() # stack is emty error type ??? -------------------------------------
 
 # Stack instructions
 def handle_pushs(instr):
@@ -386,11 +477,11 @@ def handle_pops(instr):
     global data_stack
 
     a_var = instr.get_specific_arg(1)   # <var>
-    var1 = var_is_definied(a_var.get('var'))    # var object
+    var1 = var_is_definied(a_var.get('var'), instr)    # var object
 
     # stack is empty
     if not data_stack:
-        sys.stderr.write("ERROR : SEMANTIC : Stack is empty cannot execute %s" %instr.get_instr_name())
+        sys.stderr.write("ERROR : SEMANTIC : Stack is empty cannot execute %s\n" %instr.get_instr_name())
         exit(56)
     else:
         # pprint.pprint(data_stack)
@@ -414,13 +505,13 @@ def check_base_arith(instr, a_symb1, a_symb2, operands_t):
 
     # Second operand is variable
     if a_symb1.get('var') is not None:
-        var2 = var_is_definied(a_symb1.get('var'))
+        var2 = var_is_definied(a_symb1.get('var'), instr)
         if is_type(instr, var2, operands_t):
             var2_val = var2.get_value()
 
         # Third operand is variable
         if a_symb2.get('var') is not None:
-            var3 = var_is_definied(a_symb2.get('var'))
+            var3 = var_is_definied(a_symb2.get('var'), instr)
             if is_type(instr, var3, operands_t):
                 var3_val = var3.get_value()
 
@@ -436,7 +527,7 @@ def check_base_arith(instr, a_symb1, a_symb2, operands_t):
 
         # Third operand is variable
         if a_symb2.get('var') is not None:
-            var3 = var_is_definied(a_symb2.get('var'))
+            var3 = var_is_definied(a_symb2.get('var'), instr)
             if is_type(instr, var3, operands_t):
                 var3_val = var3.get_value()
 
@@ -449,7 +540,7 @@ def check_base_arith(instr, a_symb1, a_symb2, operands_t):
         raise_err = True
 
     if raise_err:
-        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %d" %(instr.get_instr_name, instr.get_instr_pos))
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
         exit()
 
     return(var2_val, var3_val)
@@ -461,9 +552,9 @@ def handle_add(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
-    pprint.pprint(a_symb1)
+    # pprint.pprint(a_symb1)
 
     # Get value of operands
     operands = check_base_arith(instr, a_symb1, a_symb2, 'int')
@@ -482,7 +573,7 @@ def handle_sub(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     operands = check_base_arith(instr, a_symb1, a_symb2, 'int')
 
@@ -495,7 +586,7 @@ def handle_mul(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     operands = check_base_arith(instr, a_symb1, a_symb2, 'int')
 
@@ -508,7 +599,7 @@ def handle_idiv(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     operands = check_base_arith(instr, a_symb1, a_symb2, 'int')
 
@@ -525,7 +616,7 @@ def operation_type(symb, instr):
     global local_frame
 
     if symb.get('var') is not None:
-        var_v = var_is_definied(symb.get('var'))
+        var_v = var_is_definied(symb.get('var'), instr)
         if not hasattr(var_v, 'type'):
             sys.stderr.write("ERROR : SEMANTIC : Trying to work with undefinied value in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
             exit()
@@ -553,7 +644,7 @@ def handle_lt(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     # determine type of <symb1> second symbol type must be the same
     operand_type = operation_type(a_symb1, instr)
@@ -581,7 +672,7 @@ def handle_gt(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     # determine type of <symb1> second symbol type must be the same
     operand_type = operation_type(a_symb1, instr)
@@ -609,21 +700,37 @@ def handle_eq(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     # determine type of <symb1> second symbol type must be the same
+    # exception: if one operand is nil comparision with other type is permitted
     operand_type = operation_type(a_symb1, instr)
+    operand_type2 = operation_type(a_symb2, instr)
 
-    operands = check_base_arith(instr, a_symb1, a_symb2, operand_type)
+    if operand_type == 'nil' or operand_type2 == 'nil':
+        symb1_val = check_single_symb(instr, a_symb1, operand_type)
+        symb2_val = check_single_symb(instr, a_symb2, operand_type2)
+        operands = (symb1_val, symb2_val)
+    else:
+        operands = check_base_arith(instr, a_symb1, a_symb2, operand_type)
 
-    if operand_type == 'int' or operand_type == 'string' or operand_type == 'bool' or operand_type == 'nil':
+    # Handle only nil comparision
+    if operand_type == 'nil' or operand_type2 == 'nil':
+        if operand_type == 'nil' and operand_type2 == 'nil':
+            var1.set_value('true', 'bool')
+            # Nil compared to any other type results in false
+        else:
+            var1.set_value('false', 'bool')
+    # Comparing other types
+    else:
         if operands[0] == operands[1]:
             var1.set_value('true', 'bool')
         else:
             var1.set_value('false', 'bool')
-    else:
-        sys.stderr.write("ERROR : SEMANTIC : Unsupported operand type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
-        exit()
+    # Comparing nil values
+    # else:
+    #     sys.stderr.write("ERROR : SEMANTIC : Unsupported operand type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+    #     exit()
 
 def handle_and(isntr):
 
@@ -631,7 +738,7 @@ def handle_and(isntr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     operands = check_base_arith(instr, a_symb1, a_symb2, 'bool')
 
@@ -646,7 +753,7 @@ def handle_or(isntr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     operands = check_base_arith(instr, a_symb1, a_symb2, 'bool')
 
@@ -661,7 +768,7 @@ def check_single_symb(instr, symb, symb_type):
 
     # Second operand is variable
     if symb.get('var') is not None:
-        var2 = var_is_definied(symb.get('var'))
+        var2 = var_is_definied(symb.get('var'), instr)
         if is_type(instr, var2, symb_type):
             var2_val = var2.get_value()
 
@@ -675,7 +782,7 @@ def check_single_symb(instr, symb, symb_type):
         raise_err = True
 
     if raise_err:
-        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %d" %(instr.get_instr_name, instr.get_instr_pos))
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name, instr.get_instr_pos))
         exit()
 
     return var2_val
@@ -685,7 +792,7 @@ def handle_not(instr):
     a_var = instr.get_specific_arg(1)   # <var>
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     var2_val = check_single_symb(instr, a_symb1, 'bool')
 
@@ -702,7 +809,7 @@ def handle_int2_char(instr):
     a_var = instr.get_specific_arg(1)   # <var>
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     var2_val = check_single_symb(instr, a_symb1, 'int') # ---------------------possible string@9 ???????
 
@@ -719,7 +826,7 @@ def handle_stri2_int(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     var2_val = check_single_symb(instr, a_symb1, 'string')
     var3_val = check_single_symb(instr, a_symb2, 'int')
@@ -732,16 +839,32 @@ def handle_stri2_int(instr):
         var1.set_value(res, 'int')
 
 # Input-output instructions
-def handle_read(instr):
+def handle_read(instr, input_from):
 
     a_var = instr.get_specific_arg(1)   # <var>
     symb = instr.get_specific_arg(2)  # <symb>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
     symb_val = next(iter(symb.values()))
 
+    check_input = input_from.get_attrib()
+
+    if check_input[1] is not None:
+        try:
+            if not os.access(check_input[1], os.R_OK):
+                sys.stderr.write("ERROR : FILE : could not read from file - weak permissions\n")
+                exit()
+            source_file = open(check_input[1], "r")
+
+        except FileNotFoundError:
+            sys.stderr.write("ERROR : FILE : given file does not exists\n")
+            exit()
+        res = source_file.readline()
+        source_file.close()
+
     # load input from stdin
-    res = input()
+    else:
+        res = input()
 
     if symb_val == 'int':
         if res is not None:
@@ -762,10 +885,6 @@ def handle_read(instr):
         res = ''
 
     var1.set_value(res, symb_val)
-    # print ("--------------")
-    # print (var1.get_value())
-    # print (var1.get_type())
-    # print (var1.get_name())
 
 def handle_write(instr):
 
@@ -779,6 +898,9 @@ def handle_write(instr):
             print ('true', end='')
         elif symb_val == 'false':
             print ('false', end='')
+    # Print nothing on nil chain
+    elif operand_type == 'nil':
+        print('', end='')
     else:
         print(symb_val, end='')
 
@@ -789,7 +911,7 @@ def handle_concat(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     operands = check_base_arith(instr, a_symb1, a_symb2, 'string')
 
@@ -802,7 +924,7 @@ def handle_strlen(instr):
     a_var = instr.get_specific_arg(1)   # <var>
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
     # operand_type = operation_type(a_symb1, instr)
 
     symb_val = check_single_symb(instr, a_symb1, 'string')  #----------------support int, etc?
@@ -817,7 +939,7 @@ def handle_getchar(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     var2_val = check_single_symb(instr, a_symb1, 'string')
     var3_val = check_single_symb(instr, a_symb2, 'int')
@@ -835,7 +957,7 @@ def handle_set_char(instr):
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
     a_symb2 = instr.get_specific_arg(3)  # <symb2>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     var2_val = check_single_symb(instr, a_symb1, 'int')
     var3_val = check_single_symb(instr, a_symb2, 'string')
@@ -868,10 +990,10 @@ def handle_type(instr):
     a_var = instr.get_specific_arg(1)   # <var>
     symb = instr.get_specific_arg(2)  # <symb>
 
-    var1 = var_is_definied(a_var.get('var'))    # <var> is definied
+    var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
     if symb.get('var') is not None:
-        a_var = var_is_definied(symb.get('var'))
+        a_var = var_is_definied(symb.get('var'), instr)
         if not hasattr(a_var, 'type'):
             res = ''
         else:
@@ -948,7 +1070,7 @@ def handle_jumpifeq(instr, act_pos):
         operand2_type = operation_type(a_symb2, instr)
 
         if operand1_type != operand2_type:
-            sys.stderr.write("ERROR : SEMANTIC : Operands type do not match in instruction: %s on line: %s" %(instr.get_instr_name(), instr.get_instr_pos()))
+            sys.stderr.write("ERROR : SEMANTIC : Operands type do not match in instruction: %s on line: %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
             exit(53)
 
         symb1_val = check_single_symb(instr, a_symb1, operand1_type)
@@ -985,7 +1107,7 @@ def jumpifneq(instr, act_pos):
         operand2_type = operation_type(a_symb2, instr)
 
         if operand1_type != operand2_type:
-            sys.stderr.write("ERROR : SEMANTIC : Operands type do not match in instruction: %s on line: %s" %(instr.get_instr_name(), instr.get_instr_pos()))
+            sys.stderr.write("ERROR : SEMANTIC : Operands type do not match in instruction: %s on line: %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
             exit(53)
 
         symb1_val = check_single_symb(instr, a_symb1, operand1_type)
@@ -1026,9 +1148,11 @@ def handle_break(instr):
 
     sys.stderr.write("Currently at instruction %s on line %s\n\n" %(instr.get_instr_name(), instr.get_instr_pos()))
     sys.stderr.write("Instructions parsed: %d\n\n" %(int(instr.get_instr_pos()) - 1))
+
     sys.stderr.write("Global frame consists of:\n\n")
     for item in global_frame:
         sys.stderr.write("Variable name: %s value: %s\n" %(item.get_name(), item.get_value()))
+
     sys.stderr.write("\nLocal frame consists of: \n\n")
     if 'local_frame' in globals():
         for item in local_frame:
@@ -1036,11 +1160,18 @@ def handle_break(instr):
     else:
         sys.stderr.write("Local frame is empty\n")
 
+    sys.stderr.write("\nTemporary frame consists of: \n\n")
+    if 'temporary_frame' in globals():
+        for item in temporary_frame:
+            sys.stderr.write("Variable name: %s value: %s\n" %(item.get_name(), item.get_value()))
+    else:
+        sys.stderr.write("Temporary frame is empty\n")
+
 
 ################################################################################
 
 # Argument parse
-arg_parse = Args("None", "None")
+arg_parse = Args(None, None)
 
 if len(sys.argv) == 1:
     sys.stderr.write("ERROR : ARGUMENTS : need argument --source of --input run --help\n")
@@ -1055,22 +1186,17 @@ if len(sys.argv) > 3:
 
 if len(sys.argv) == 3:
     if re.search('^(--source=)+', sys.argv[1]) and re.search('^(--input=)+', sys.argv[2]):
-        print("both1")
-        print(sys.argv[1])
         arg_parse.set_source((sys.argv[1])[9:])
         arg_parse.set_input((sys.argv[2])[8:])
     elif re.search('^(--input=)+', sys.argv[1]) and re.search('^(--source=)+', sys.argv[2]):
-        print("both2")
         arg_parse.set_input((sys.argv[1])[8:])
         arg_parse.set_source((sys.argv[2])[9:])
     else:
         sys.stderr.write("ERROR : ARGUMENTS : unknown arguments run --help for further info\n")
 elif len(sys.argv) == 2:
     if re.search('^(--source=)+', sys.argv[1]):
-        print("source")
         arg_parse.set_source((sys.argv[1])[9:])
     elif re.search('^(--input=)+', sys.argv[1]):
-        print("input")
         arg_parse.set_input((sys.argv[1])[8:])
     else:
         sys.stderr.write("ERROR : ARGUMENTS : unknown arguments run --help for further info\n")
@@ -1113,6 +1239,7 @@ except elem_tree.ParseError:
 tree = elem_tree.parse(source_file_name)
 root = parse_xml(tree)
 instruct_list = list()
+source_file.close()
 
 # parse given XML and create obj for every instruction
 for instr in root.iter('instruction'):
@@ -1131,19 +1258,12 @@ for instr in root.iter('instruction'):
         # Store label name and position as tuple
         labels.append(( label_name, act.get_instr_pos() ))
 
-# Label duplicates
-# label_redef = set([x for x in labels if labels.count(x) > 1])
-# if label_redef is not None:
-#     sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing label\n")
-#     exit(52)
+# Sorting list by order attribute
+instruct_list.sort(key=lambda x: int(x.line), reverse=False)
 
-
-
-# loop over instruction list
-
-# for instr in instruct_list:
 act_pos = 0
 
+# loop over instruction list
 while int(act_pos) < len(instruct_list):
     instr = instruct_list[act_pos]
     act_pos += 1
@@ -1158,7 +1278,9 @@ while int(act_pos) < len(instruct_list):
             elif i_type == 'int':
                 parse_int(i_val)
             elif i_type == 'string':
-                parse_string(i_val)
+                p_string = parse_string(i_val)
+                instr.update_val(arg_n, p_string)
+
             elif i_type == 'bool':
                 parse_bool(i_val)
             elif i_type == 'nil':
@@ -1176,7 +1298,7 @@ while int(act_pos) < len(instruct_list):
     # SYNTAX ANALYSIS
     syntax_check(instr)
 
-    print (instr.get_instr_name())
+    # print (instr.get_instr_name())
 
     # Work with frames
     if (instr.get_instr_name()).upper() == 'MOVE':
@@ -1236,7 +1358,7 @@ while int(act_pos) < len(instruct_list):
 
     # Input-output instructions
     elif (instr.get_instr_name()).upper() == 'READ':
-        handle_read(instr)
+        handle_read(instr, arg_parse)
     elif (instr.get_instr_name()).upper() == 'WRITE':
         handle_write(instr)
 
