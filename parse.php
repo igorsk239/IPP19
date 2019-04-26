@@ -156,9 +156,21 @@
   function arg_parse($argc, $argv){
 
     if($argc == 2 && ($argv[1] === "--help" || $argv[1] === "-help")){
-        echo 'Usage: php7.3 parse.php | --help
-              --help Prints help message'."\n";
-        exit(0);
+      fwrite(STDIN,
+      "Usage: php7.3 test.php | --help | [--stats=file] [--loc] | [--comments] | [--labels] | [--jumps]
+              Parser for .IPPcode19 language\n
+                --help        help message
+                --stats=file  file which will contain code statistics
+                --loc         statistic for lines of code present in source file
+                --comments    statistic for commentaries present in source code
+                --labels      statistic for labels in source code
+                --jumps       statistic for jump instructions in source cod
+
+      Parse will parse given input from STDIN and checks it lexical and syntax correctness.
+      Through analysis parser also generates XML file as output to STDOUT. XML file consists
+      of instructions and their operands writen in XML standard.
+      \n");
+      exit(0);
     }
     elseif($argc > 2 && $argv[1] === "--help"){
       fwrite(STDERR, "ERROR : ARGUMENTS : multiple use of --help argumet\n");
@@ -176,10 +188,19 @@
     $array_stream = stream_get_contents(STDIN);
     $array_stream = str_split($array_stream);
 
+    foreach ($array_stream as $keyMod => $valueMod) { //cut white space before .IPPcode19 header
+      if(preg_match('/^\S$/', $valueMod)){
+        break;
+      } else unset($array_stream[$keyMod]);
+    }
+    if(empty($array_stream)){
+      fwrite(STDERR, "ERROR : Input doesn't start with .IPPcode19 header\n");
+      exit(21);#appropriate exit code
+    }
     global $key_val;
     global $c_commentary;
     $c_commentary = 0;
-    $key_val = 0;
+    $key_val = $keyMod;
   }
 
   /**
@@ -258,7 +279,7 @@
     }
     elseif($identifier->varSearch){
       $token->type = tokenType::identifier;
-      if(!preg_match("/^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$/", $token->data)){
+      if(!preg_match("/^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$/", $token->data)){  //checks if indentif. really matches regex for identif.
         fwrite(STDERR,"ERROR : LEX : detected lexical error in: $token->data\n");
         exit(23);
       }
@@ -298,16 +319,20 @@
       */
       if($key_val === array_key_last($array_stream)){
         $token->last = False;
+        if($token->data !== PHP_EOL){
+          $token->type = tokenType::EOL;
+          $token_end = False;
+        }
       }
       /* State automaton for lexical analysis combined with usage of regular expressions */
       switch ($token_type) {
         case tokenType::start:
         {
-          if($array_stream[$key_val] === "."){
+          if($array_stream[$key_val] === "."){  //header dection
             $token_type = tokenType::header;
             break;
           }
-          elseif($array_stream[$key_val] === "@"){
+          elseif($array_stream[$key_val] === "@"){  //at mark detected
             $token->data = $array_stream[$key_val];
             $token->type = tokenType::marker;
             identify_operand();
@@ -316,19 +341,19 @@
             $token_end = False;
             break;
           }
-          elseif($array_stream[$key_val] === "#"){
+          elseif($array_stream[$key_val] === "#"){  //start of commentary
             $token_type = tokenType::commentary;
             break;
           }
-          elseif($array_stream[$key_val] === PHP_EOL){
+          elseif($array_stream[$key_val] === PHP_EOL){  //EOL detected
             $token_type = tokenType::EOL;
             break;
           }
-          elseif($array_stream[$key_val] === "\t" || $array_stream[$key_val] === " "){ //  //elseif(preg_match("[ \t]", $array_stream[$key_val])){
+          elseif($array_stream[$key_val] === "\t" || $array_stream[$key_val] === " "){  //white spaces before instruction/commentary
             $key_val++;
             preset_identifier();
           }
-          elseif(ctype_alpha($array_stream[$key_val]) || ctype_digit($array_stream[$key_val]) || preg_match("/^_|\-|\$|&|%|\*|!|\?$/", $array_stream[$key_val])){
+          elseif(ctype_alpha($array_stream[$key_val]) || ctype_digit($array_stream[$key_val]) || preg_match("/^_|\-|\$|&|%|\*|!|\?$/", $array_stream[$key_val])){ //var/string/int catch
             $token_type = tokenType::charStream;
             break;
           }
@@ -340,8 +365,9 @@
         }
         case tokenType::header:
         {
+          /*  Load header in loop, until new line space or commentary right after header  */
           while(1){
-            if($array_stream[$key_val] === PHP_EOL || preg_match("/^[ \t#]$/",$array_stream[$key_val])){
+            if($array_stream[$key_val] === PHP_EOL || preg_match("/^[ \t#]$/",$array_stream[$key_val]) || $key_val === array_key_last($array_stream)){
               if(preg_match("/^.ippcode19$/", strtolower($token->data))){
                 $token->type = tokenType::header;
                 $token_end = False;
@@ -357,6 +383,7 @@
           }
           break;
         }
+        /*  Creates EOL token */
         case tokenType::EOL:
         {
           $token->data = $array_stream[$key_val];
@@ -367,24 +394,32 @@
           $token_end = False;
           break;
         }
+        /*  Catches commentary, all character are trimmed until EOL*/
         case tokenType::commentary:
         {
           while($array_stream[$key_val] !== PHP_EOL)
           {
+            if($key_val === array_key_last($array_stream)) break;
             $key_val++;
           }
           $c_commentary++;
           $token_type = tokenType::EOL;
           break;
         }
+        /*  string/int or var stream stored into token */
         case tokenType::charStream:
         {
           while(1){
-            if(preg_match("/^[ \t@]$/",$array_stream[$key_val])){         // === " " || $array_stream[$key_val] === "\t" || $array_stream[$key_val] === "@"){
+            if(preg_match("/^[ \t@]$/",$array_stream[$key_val])){
               $token_type = tokenType::identifyStream;
               break;
             }
-            elseif($array_stream[$key_val] === PHP_EOL || $array_stream[$key_val] === "#"){
+            elseif($array_stream[$key_val] === PHP_EOL || $array_stream[$key_val] === "#"){ //read until newline or commentary start
+              $token_type = tokenType::identifyStream;
+              break;
+            }
+            elseif($key_val === array_key_last($array_stream)){   //read until EOF and add last character to token
+              $token->data .= $array_stream[$key_val];
               $token_type = tokenType::identifyStream;
               break;
             }
@@ -416,6 +451,7 @@
             $token_end = False;
             break;
           }
+          /*  Match for string literal  - all unicode numbers and escape sequences */
           elseif(preg_match("/^([\x{0024}-\x{005B}]|[\x{0021}\x{0022}]|[\x{005D}-\x{FFFF}]|[ěščřžýáíéóúůďťňĎŇŤŠČŘŽÝÁÍÉÚŮa-zA-Z0-9]|([\\\\][0-9]{3})?)*$/", $token->data)){   //^([ěščřžýáíéóúůďťňĎŇŤŠČŘŽÝÁÍÉÚŮa-zA-Z0-9]|([\\\\][0-9]{3})?)*$
             $token->type = tokenType::stringStream;
             $token_end = False;
@@ -433,7 +469,7 @@
     }
   }
 
-
+  /*  Init  */
   arg_parse($argc, $argv);
   read_stream();
   preset_identifier();
@@ -459,7 +495,7 @@
   /**
    * Checks if string contains problematic characters
    *
-   * Any problematic character for xml is replaced with it's
+   * Any problematic character for xml is replaced with its
    * XML friendly format
    * @param t_data string chain
    * @return string chain without problematic characters
@@ -495,9 +531,9 @@
   }
 
   /***************************************************************************************
-  *
-  *                  SYNTAX ANALYSIS AND GENERATION OF XML OUTPUT
-  *
+  *                                                                                      *
+  *                  SYNTAX ANALYSIS AND GENERATION OF XML OUTPUT                        *
+  *                                                                                      *
   ***************************************************************************************/
 
   /**
@@ -510,7 +546,7 @@
     get_token();
     if($token->type !== tokenType::EOL){
       fwrite(STDERR, "ERROR : SYNTAX : End of line <eol> expected : last token: $token->data\n");
-      exit(22);
+      exit(23);
     }
   }
 
@@ -585,7 +621,7 @@
 
     if($error_val){
       fwrite(STDERR, "ERROR : SYNTAX : Variable <var> expected : last token: $token->data  $token->type\n");
-      exit(22);
+      exit(23);
     }
   }
   /**
@@ -602,6 +638,7 @@
     $error_val = False;
 
     get_token();
+    /*  Symbol represented as integer */
     if($token->type === tokenType::d_int){
       upper_scan($token->data, 0);
       $arg_order->addAttribute('type','int');
@@ -611,10 +648,15 @@
         if($token->type !== tokenType::number){
           $error_val = True;
         }
+        if(!preg_match("/^[+|-]?[0-9]*$/",$token->data)){
+          fwrite(STDERR,"ERROR : LEX : detected lexical error in: $token->data\n");
+          exit(23);
+        }
         $arg_order[0] .= $token->data;
       }
       else $error_val = True;
     }
+    /*  Symbol represented as string  */
     elseif($token->type === tokenType::d_string){
       upper_scan($token->data, 0);
       $arg_order->addAttribute('type','string');
@@ -633,6 +675,7 @@
       }
       else $error_val = True;
     }
+    /*  Symbol represented as bool  */
     elseif($token->type === tokenType::d_bool){
       upper_scan($token->data, 0);
       $arg_order->addAttribute('type','bool');
@@ -650,6 +693,7 @@
       }
       else $error_val = True;
     }
+    /*  Symbol represented as nil */
     elseif($token->type === tokenType::d_nil){
       upper_scan($token->data, 0);
       $arg_order->addAttribute('type', 'nil');
@@ -664,6 +708,7 @@
       }
       else $error_val = True;
     }
+    /*  Symbol represented as <var> */
     elseif($token->type >= tokenType::f_gf && $token->type <= tokenType::f_tf){
       upper_scan($token->data, 0);
       $arg_order->addAttribute('type', 'var');
@@ -687,10 +732,11 @@
 
     if($error_val){
       fwrite(STDERR, "ERROR : SYNTAX : Symbol <symb> expected : last token: $token->data  $token->type\n");
-      exit(22);
+      exit(23);
     }
   }
 
+  /*  Init for STATP  */
   $v_statp = new aStatp();
   $v_statp->ispresent = 0;
   $v_statp->stat_list = [];
@@ -698,7 +744,8 @@
   $statp_stats[2] = 0;
   $statp_stats[3] = 0;
 
-  $program = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?>'.'<program></program>');  //creating SimpleXML object
+  /*  Creating SimpleXML object */
+  $program = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?>'.'<program></program>');
   $program->addAttribute('language', 'IPPcode19');
   $instr_ord = 0;
 
@@ -711,7 +758,7 @@
       $instruction->addAttribute('order', $instr_ord);
       $instruction->addAttribute('opcode', strtoupper($keywords[($token->type)-110]));
     }
-    /*  State automaton for syntax analysis */
+    /*  State automaton for syntax analysis, instructions with same operands are parsed together  */
     switch ($token->type) {
       case tokenType::header:
             eol_identify();
@@ -732,14 +779,16 @@
             $arg1 = $instruction->addChild('arg1');
             $arg1->addAttribute('type', 'label');
             get_token();
+
             if($token->type !== tokenType::identifier){
               if(!is_keyword(tokenType::identifier)){
                 fwrite(STDERR, "ERROR : SYNTAX : Label <label> expected : last token: $token->data  $token->type\n");
-                exit(22);
+                exit(23);
               }
             }
             $arg1[0] .= $token->data;
-            if($token->type === tokenType::i_jump) $statp_stats[3]++; // || $token->type === tokenType::i_call
+
+            if($token->type === tokenType::i_jump) $statp_stats[3]++;
             eol_identify();
             break;
       case tokenType::i_defvar:
@@ -795,10 +844,11 @@
             $arg3 = $instruction->addChild('arg3');
             $arg1->addAttribute('type', 'label');
             get_token();
+
             if($token->type !== tokenType::identifier){
               if(!is_keyword(tokenType::identifier)){
                 fwrite(STDERR, "ERROR : SYNTAX : Expected <label> : last token: $token->data   $token->type\n");
-                exit(22);
+                exit(23);
               }
             }
             $arg1[0] .= $token->data;
@@ -811,9 +861,10 @@
             $arg1 = $instruction->addChild('arg1');
             var_identify($arg1);
             get_token();
-            if($token->type < tokenType::d_string || $token->type > tokenType::d_bool){
+
+            if($token->type < tokenType::d_int || $token->type > tokenType::d_bool){
               fwrite(STDERR, "ERROR : SYNTAX : Expected <type> : last token: $token->data  $token->type\n");
-              exit(22);
+              exit(23);
             }
             $arg2 = $instruction->addChild('arg2');
             $arg2->addAttribute('type', 'type');
@@ -846,13 +897,15 @@
   foreach ($argv as $key => $value) {
     if(preg_match("/(\-\-stats=)|(\-\-loc)|(\-\-comments)|(\-\-labels)|(\-\-jumps)/",$argv[$key])){
       array_push($v_statp->stat_list, $argv[$key]);
+
       if(preg_match("/(\-\-stats=)/", $argv[$key])){
         array_pop($v_statp->stat_list);
         $file_stat = substr($argv[$key], 8); //file name
+
         if(!file_exists($file_stat)){
           if(!is_readable($file_stat)){
             $file_stat = fopen("$file_stat", "w+");
-            // fclose($file_stat);
+
             if(!$file_stat){
               fwrite(STDERR, "ERROR : FILE : couldn't open file\n");
               exit(12);
@@ -881,7 +934,7 @@
   elseif($v_statp->ispresent === 1) file_put_contents($file_stat, "");  //clear file contents
 
   foreach ($v_statp->stat_list as $key => $value) { //saving statistics to file
-    switch ($value) {
+    switch ($value) { //saving statistics to file
       case '--loc':
         file_put_contents($file_stat, "$statp_stats[1]\n", FILE_APPEND);
         break;

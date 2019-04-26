@@ -1,19 +1,17 @@
+##
+# @file: interpret.py
+# @author: Igor Ignác xignac00@fit.vutbr.cz
+# @name: Implementation of Project for IPP 2018/2019
+# @date 11.2.2019
+# Faculty: Faculty of Information Technology, Brno University of Technology
+##
+
+
 import xml.etree.ElementTree as elem_tree
 from io import StringIO
 import sys
 import re
 import os
-
-#dict print only
-import pprint
-
-
-# TODO read from stdin not only from file
-# TODO stack pop determine type of popped value -> set variable type
-# TODO sort instructions by order HACK
-# TODO sort arguments by order  HACK
-
-# TODO jump return number or number--   <- must be --
 
 # GF global frame structured as dictionary
 global_frame = []
@@ -24,28 +22,32 @@ call_stack = []
 # List of labels present in source code
 labels = []
 
-# local_frame
-# temporary_frame
-
+## Class used for storing program arguments
 class Args:
     def __init__(self, p_source, p_input):
         self.source = p_source
         self.input = p_input
+    ## On argument occurence filling class attributes
     def set_source(self, p_source):
         self.source = p_source
     def set_input(self, p_input):
         self.input = p_input
+    ## Retrieving prog arguments
     def get_attrib(self):
         return (self.source, self.input)
 
+## Used for source code variables
+#
+# Class used for <var> type. Able to store name, frame and value of variable
 class Variable:
     def __init__(self, name):
         self.name = name
         self.value = None
-
+    ## Filling
     def set_value(self, value, op_type):
         self.value = value;
         self.type = op_type
+    ## Retrieve information
     def get_value(self):
         return self.value
     def get_type(self):
@@ -53,8 +55,11 @@ class Variable:
     def get_name(self):
         return self.name
 
-
+## Represents one intruction retrieved from xml file
+#
+# Used for modifying and storing all information about given Instruction
 class Instruction:
+    # Fill Instruction information
     def __init__(self, Instruction):
         self.name = (Instruction.attrib).get('opcode')
         self.line = (Instruction.attrib).get('order')    # position line in xml
@@ -85,13 +90,13 @@ class Instruction:
 
     def get_instr_pos(self):
         return self.line
-
+    # Returns all instruction arguments
     def get_instr_args(self):
         return (self.arg1, self.arg2, self.arg3)
-
+    # Return only instruction arguments values
     def get_arg_val(self):
         return (self.arg1Val, self.arg2Val, self.arg3Val)
-
+    # Return number of arguments present in Instruction
     def get_arg_total(self):
         t_arg = self.get_arg_val()
         arg_sum = 0
@@ -100,7 +105,7 @@ class Instruction:
                 if arg_val is not None:
                     arg_sum += 1
         return arg_sum
-
+    # Retrieve specify argument value
     def get_specific_arg(self, position):
         if position == 1:
             return self.arg1Val
@@ -110,7 +115,7 @@ class Instruction:
             return self.arg3Val
         else:
             raise ValueError('Unknown position number in method get_specific_arg\n')
-
+    # Updating value of argument - mainly used for variable objects
     def update_val(self, arg, new_val):
         for i_arg in self.get_arg_val():
             if arg is self.arg1Val:
@@ -123,42 +128,50 @@ class Instruction:
                 for key, value in self.arg3Val.items():
                     self.arg3Val[key] = new_val
 
-# Functions for XML parsing
+## Functions for XML parsing
+#
+# Checks if given xml file is well-formed
+# @param tree_ptr root of xml retrieved from ElementTree
 def parse_xml(tree_ptr):
     root = tree_ptr.getroot()
 
-    if root.tag != "program":
+    if root.tag != "program":   # Necessary element
         sys.stderr.write("ERROR: wrong formatting of root element expected: %s\n" %root.tag)
-        exit()
-    if root.attrib.get('language') != "IPPcode19":
+        exit(32)
+    if root.attrib.get('language') != "IPPcode19":  # Defines language of code written into xml
         sys.stderr.write("ERROR: wrong formatting of root element expected: %s attribute\n" %root.attrib)
-        exit()
+        exit(32)
     return root
 
-# Functions for lexical analysis of given instruction operands
+## Functions for lexical analysis of given instruction operands
+#
+# Multiple function used for parsing multiple types. All of them are using
+# regular expression trying to match desired format.
+# @param op_val value of string we test
 def parse_var(op_val):
-    # pprint.pprint(op_val[3:])
     if re.search('GF@|LF@|TF@', op_val[:3]) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s frame expected\n" %op_val[:3])
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s frame expected\n" %op_val[:3])
+        exit(32)
     if re.search('^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$', op_val[3:]) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s identifier expected\n" %op_val)
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s identifier expected\n" %op_val)
+        exit(32)
 
 def parse_label(op_val):
     if re.search('^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$', op_val) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s identifier expected\n" %op_val)
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s identifier expected\n" %op_val)
+        exit(32)
 
 def parse_int(op_val):
     if re.search('^[+|-]?[1-9][0-9]*|[+|-][0]|[0]$', op_val) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s <int> expected\n" %op_val)
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s <int> expected\n" %op_val)
+        exit(32)
 
 def parse_string(op_val):
+    if op_val is None:
+        return ''
     if re.search('^([\u0024-\u005B]|[\u0021\u0022]|[\u005D-\uFFFF]|[ěščřžýáíéóúůďťňĎŇŤŠČŘŽÝÁÍÉÚŮa-zA-Z0-9]|([\\\\][0-9]{3})?)*$', op_val) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s <string> expected\n" %op_val)
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s <string> expected\n" %op_val)
+        exit(32)
     else:
         # Convert escape sequences to unicode character
         matches = re.findall('[\\\\][0-9]{3}', op_val)
@@ -170,35 +183,43 @@ def parse_string(op_val):
 
 def parse_bool(op_val):
     if re.search('false|true', op_val) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s <bool> expected\n" %op_val)
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s <bool> expected\n" %op_val)
+        exit(32)
 
 def parse_nil(op_val):
     if re.search('nil', op_val) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s <nil> expected\n" %op_val)
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s <nil> expected\n" %op_val)
+        exit(32)
 
 def parse_label(op_val):
     if re.search('^[a-zA-Z_\-\$&%\*!?][a-zA-Z_\-\$&%\*!?0-9]*$', op_val) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s <label> expected\n" %op_val)
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s <label> expected\n" %op_val)
+        exit(32)
 
 def parse_type(op_val):
     if re.search('int|string|bool', op_val) is None:
-        sys.stderr.write("ERROR : lexical error in given stream : %s <type> expected\n" %op_val)
-        exit()
+        sys.stderr.write("ERROR : LEXICAL error in given stream : %s <type> expected\n" %op_val)
+        exit(32)
 
 ################################################################################
 
-# Functions for syntax analysis
+## Functions for syntax analysis
+#
+# @param instr element retrieved from ElementTree
+# @param exp expected number of arguments
+# @return true on success
 def arg_count(instr, exp):
 
     if instr.get_arg_total() != exp:
         sys.stderr.write("ERROR : SYNTAX Wrong number of arguments in %s expected %d\n" %(instr.get_instr_name(), exp))
-        exit()
+        exit(32)
     else:
         return True
 
+## Checks for supported data type
+#
+# @param op_val string representing data type
+# @return true on success
 def is_symbol(op_val):
 
     b_symb = False
@@ -216,6 +237,12 @@ def is_symbol(op_val):
 
     return b_symb
 
+## Searches in array of keywords
+#
+# Function checks if given instr has valid number of arguments.
+# Number of arguments depends on its position in array
+# @param instr given instruction
+# @param position which defines number of expected arguments
 def syntax_struct(instr, instr_number):
 
     instr_args = instr.get_arg_val()  # all arguments of instruction
@@ -224,48 +251,51 @@ def syntax_struct(instr, instr_number):
         # if instr_args.count(None) != len(instr_args):
         if instr.get_arg_total() != 0:
             sys.stderr.write("ERROR : SYNTAX Unknown operand in instruction: %s\n" %instr.get_instr_name())
-            exit()
+            exit(32)
 
     elif 6 <= instr_number <= 8:
         if instr.get_arg_total() != 1 or next(iter(instr_args[0])) != 'label':
             sys.stderr.write("ERROR : SYNTAX Wrong number of arguments or argument type in %s\n" %instr.get_instr_name())
-            exit()
+            exit(32)
 
     elif 9 <= instr_number <= 10:
         if instr.get_arg_total() != 1 or next(iter(instr_args[0])) != 'var':
             sys.stderr.write("ERROR : SYNTAX Wrong number of arguments or argument type in %s\n" %instr.get_instr_name())
-            exit()
+            exit(32)
 
     elif 11 <= instr_number <= 14:
         arg_count(instr, 1)
         if not is_symbol(next(iter(instr_args[0]))):
             sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
-            exit()
+            exit(32)
 
     elif 15 <= instr_number <= 19:
         arg_count(instr, 2)
         if next(iter(instr_args[0])) != 'var' or not is_symbol(next(iter(instr_args[1]))):
             sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
-            exit()
+            exit(32)
 
     elif 20 <= instr_number <= 32:
         arg_count(instr, 3)
         if next(iter(instr_args[0])) != 'var' or not is_symbol(next(iter(instr_args[1]))) or not is_symbol(next(iter(instr_args[2]))):
             sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
-            exit()
+            exit(32)
 
     elif 33 <= instr_number <= 34:
         if next(iter(instr_args[0])) != 'label' or not is_symbol(next(iter(instr_args[1]))) or not is_symbol(next(iter(instr_args[2]))):
             sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
-            exit()
+            exit(32)
 
     elif instr_number == 35:
         arg_count(instr, 2)
         if instr_args[0].get('var') is None or instr_args[1].get('type') is None:
             sys.stderr.write("ERROR : SYNTAX Wrong type of argument in %s\n" %instr.get_instr_name())
-            exit()
+            exit(32)
 
-
+## Start point for syntax analysis
+#
+# Creates array of key-val elements, where position defines required number of arguments
+# @param instr analysed instruction
 def syntax_check(instr):
     instr_opcodes = {
         "createframe": 1, "pushframe": 2, "popframe": 3, "return": 4, "break": 5,
@@ -292,6 +322,13 @@ def syntax_check(instr):
 
     syntax_struct(instr, instr_number)
 ################################################################################
+
+## Function only used for variables
+#
+# All variables passed are checked for their existence in frame. Examined frame
+# is defined by instr name - LF for local frame, GF for global frame etc.
+# @var examined variable
+# @instr instruction containing given variable - used only for error message
 def var_is_definied(var, instr):
     global global_frame
     global local_frame
@@ -299,27 +336,11 @@ def var_is_definied(var, instr):
 
     frame_error = False
 
-    # search the global frame
-    for name in global_frame:
-        if name.get_name() == var:
-            return name
-
-    # search the local frame
-    if 'local_frame' in globals():
-        act_lf = local_frame[-1]
-        for name in local_frame:
-            if name.get_name() == var:
-                return name
-
-    elif 'local_frame' not in globals() and var[:3] == "LF@":
+    if 'local_frame' not in globals() and var[:3] == "LF@":
         frame_error = True
-
-    # Search in temporary_frame
-    if 'temporary_frame' in globals():
-        for name in temporary_frame:
-            if name.get_name() == var:
-                return name
-    elif 'local_frame' not in globals() and var[:3] == "LF@":
+    elif 'temporary_frame' not in globals() and var[:3] == "TF@":
+        frame_error = True
+    elif 'global_frame' not in globals() and var[:3] == "GF@":
         frame_error = True
 
     # Frame not found
@@ -327,9 +348,38 @@ def var_is_definied(var, instr):
         sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
         exit(55)
 
-    sys.stderr.write("ERROR : SEMANTIC : Undefinied variable: %s in instruction: %s\n" %(var, instr.get_instr_name()))
-    exit()
+    # search the global frame
+    if var[:3] == "GF@":
+        for name in global_frame:
+            if name.get_name() == var:
+                return name
 
+    # search the local frame
+    if var[:3] == "LF@":
+        if 'local_frame' in globals():
+            try:
+                act_lf = local_frame[-1]
+            except IndexError:
+                sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
+                exit(55)
+
+            for name in local_frame:
+                if name.get_name() == var:
+                    return name
+
+    # Search in temporary_frame
+    if var[:3] == "TF@":
+        if 'temporary_frame' in globals():
+            for name in temporary_frame:
+                if name.get_name() == var:
+                    return name
+
+    sys.stderr.write("ERROR : SEMANTIC : Undefinied variable: %s in instruction: %s\n" %(var, instr.get_instr_name()))
+    exit(54)
+
+## Handles semantic check of instr move
+#
+# @param instr instruction given to analysis
 def handle_move(instr):
     global global_frame
 
@@ -337,7 +387,6 @@ def handle_move(instr):
     a_var = instr.get_specific_arg(1)   # <var>
     a_symb = instr.get_specific_arg(2)  # <symb>
     var1 = var_is_definied(a_var.get('var'), instr)    # var object
-    # pprint.pprint(list(a_symb.keys())[0])
 
     # <var> <var> situation
     if a_symb.get('var') is not None:
@@ -345,11 +394,13 @@ def handle_move(instr):
 
         # move value from var2 to var1
         var1.set_value(var2.get_value(), var2.get_type())
-        # print ("HERE: var1: %s  var2: %s" % (var1.get_value(), var2.get_value()))
     else:
         # value of <symb> into var1
         var1.set_value(next(iter(a_symb.values())), list(a_symb.keys())[0])
 
+## Handles defvar oprations
+#
+# @param instr given instr
 def handle_defvar(instr):
     global global_frame
     global local_frame
@@ -371,7 +422,11 @@ def handle_defvar(instr):
 
     if a_var.get('var')[:3] == 'LF@':
         if 'local_frame' in globals():
-            act_lf = local_frame[-1]
+            try:
+                act_lf = local_frame[-1]
+            except IndexError:
+                sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
+                exit(55)
             for name in local_frame:
                 if name.get_name() == a_var.get('var'):
                     redefinition = True
@@ -392,12 +447,16 @@ def handle_defvar(instr):
         else:
             sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
             exit(55)
-        temporary_frame.append(a_var.get('var'))
+        new_var = Variable(a_var.get('var'))
+        temporary_frame.append(new_var)
 
     if redefinition:
         sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing variable %s\n" %a_var.get('var'))
-        exit()
+        exit(52)
 
+## Creating new temporary frame and removing present
+#
+# @param instr given createframe instr
 def handle_createframe(instr):
 
     # Check if temporary frame already exists
@@ -409,8 +468,10 @@ def handle_createframe(instr):
         temporary_frame.clear()
         temporary_frame = []
 
+## Pushing existing temporary_frame to stack and can be accessed as local_frame
+#
+# @param instr given instruction
 def handle_pushframe(instr):
-    global temporary_frame
 
     # local frame does not exits yet
     if 'local_frame' not in globals():
@@ -420,9 +481,15 @@ def handle_pushframe(instr):
         if 'temporary_frame' not in globals():
             sys.stderr.write("ERROR : SEMANTIC : On line %s Trying to reach an undefinied frame in instr: %s\n" %(instr.get_instr_pos(), instr.get_instr_name()))
             exit(55)
+        global temporary_frame
+        if not temporary_frame:
+            exit(55)
         local_frame.append(temporary_frame)
         del temporary_frame # deleting TF
 
+## Moves active local frame to temporary frame
+#
+# @param instr given instr
 def handle_popframe(instr):
     global temporary_frame
     global local_frame
@@ -433,46 +500,69 @@ def handle_popframe(instr):
         exit(55)
     # move local frame to temporary frame
     else:
-        temporary_frame.clear()
         temporary_frame = local_frame
 
 
-# Function call instructions
+### Function call instructions ###
+
+## Instruction supports jump on given label and increments program instr reader
+#
+# @param instr given instr
+# @param act_pos actual position of program reader store to stack
 def handle_call(instr, act_pos):
     global labels
     global call_stack
 
     label = instr.get_specific_arg(1)  # <label>
     label_name = next(iter(label.values()))
-    exist = False
+    exists = False
 
-    for name, pos in labels:
-        if name == label_name:
-            exists = True
-            break
-
-    if not exist:
-        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
-        exit(52)
+    if 'labels' in globals():
+        for name, pos in labels:
+            if name == label_name:
+                exists = True
+                break
     else:
+        exists = False
+
+    if exists:
         # Save incremented actual position
         call_stack.append(int(act_pos) + 1)
         # Jump on label
         return pos
+    else:
+        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+        exit(52)
 
 def handle_return(instr):
     global call_stack
 
+    if not call_stack:
+        sys.stderr.write("ERROR : SEMANTIC : Can not return, call stack is empty\n")
+        exit(56)
     # Take out position from call stack and jump on it
-    return call_stack.pop() # stack is emty error type ??? -------------------------------------
+    return call_stack.pop()
 
-# Stack instructions
+# Stack instruction saving given instr value to stack
+#
+# @param instr given instruction
 def handle_pushs(instr):
     global data_stack
 
     symb_val = instr.get_specific_arg(1)    # extract instruct argument
-    data_stack.append(next(iter(symb_val.values())))    # put value on stack
 
+    if symb_val.get('var') is not None: # Check if var is definied before push
+        name = var_is_definied(symb_val.get('var'), instr)
+        if name.get_value() is None:
+            sys.stderr.write("ERROR : SEMANTIC : Trying to work with undefinied value in instruction %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+            exit(56)
+        data_stack.append(name)    # put value on stack
+    else:
+        data_stack.append(symb_val)    # put value on stack
+
+# Stack instruction retrieving given instr value to stack
+#
+# @param instr given instruction
 def handle_pops(instr):
     global data_stack
 
@@ -484,21 +574,36 @@ def handle_pops(instr):
         sys.stderr.write("ERROR : SEMANTIC : Stack is empty cannot execute %s\n" %instr.get_instr_name())
         exit(56)
     else:
-        # pprint.pprint(data_stack)
-        var1.set_value(data_stack.pop(), None)    # HERE have to set variable type based on output!!
-        # pprint.pprint(data_stack)
+        stack_val = data_stack.pop()
+        # Variable popped from stack
+        if isinstance(stack_val, Variable):
+            var1.set_value(stack_val.get_value(), stack_val.get_type())
+        else:
+            var1.set_value(stack_val[next(iter(stack_val))], next(iter(stack_val)))
 
-# Arithmetic instructions
+### Arithmetic instructions ###
+
+## Checks if given <var> has desired type
+#
+# @param isntr given instruction
+# @param curr_var currently examined variable
+# @param operands_t desired type
 def is_type(instr, curr_var, operands_t):
     if not hasattr(curr_var, 'type'):
         sys.stderr.write("ERROR : SEMANTIC : Trying to work with undefinied value in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
-        exit()
+        exit(56)
     if curr_var.get_type() == operands_t:
         return True
     else:
         sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
-        exit()
+        exit(53)
 
+## Retrieves value from given symbols and check if they have same type
+#
+# @param instr given instruction
+# @param a_symb1 <symb1>
+# @param a_symb2 <symb2>
+# @param operands_t desired type of operands
 def check_base_arith(instr, a_symb1, a_symb2, operands_t):
 
     raise_err = False
@@ -541,11 +646,13 @@ def check_base_arith(instr, a_symb1, a_symb2, operands_t):
 
     if raise_err:
         sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
-        exit()
+        exit(53)
 
     return(var2_val, var3_val)
 
-
+## Handles add instruction
+#
+# @param instr given instruction
 def handle_add(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -554,7 +661,6 @@ def handle_add(instr):
 
     var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
-    # pprint.pprint(a_symb1)
 
     # Get value of operands
     operands = check_base_arith(instr, a_symb1, a_symb2, 'int')
@@ -562,11 +668,10 @@ def handle_add(instr):
     # Operands have same type and sum can be applicated
     v_sum =  int(operands[0]) + int(operands[1])
     var1.set_value(v_sum, 'int')
-    # print ("--------------")
-    # print (var1.get_value())
-    # print (var1.get_type())
-    # print (var1.get_name())
 
+## Handles sub instruction
+#
+# @param instr given instruction
 def handle_sub(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -580,6 +685,9 @@ def handle_sub(instr):
     v_sum = int(operands[0]) - int(operands[1])
     var1.set_value(v_sum, 'int')
 
+## Handles mul instruction
+#
+# @param instr given instruction
 def handle_mul(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -593,6 +701,9 @@ def handle_mul(instr):
     v_sum = int(operands[0]) * int(operands[1])
     var1.set_value(v_sum, 'int')
 
+## Handles idiv instruction
+#
+# @param instr given instruction
 def handle_idiv(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -610,7 +721,13 @@ def handle_idiv(instr):
     v_sum = int(operands[0]) // int(operands[1])
     var1.set_value(v_sum, 'int')
 
-# Relation operads
+### Relation operads ###
+
+## Searches for type of given symbol and returns it
+#
+# @param symb symbol which is being examined
+# @param instr given instruction
+# @return symbol type
 def operation_type(symb, instr):
     global global_frame
     global local_frame
@@ -619,7 +736,7 @@ def operation_type(symb, instr):
         var_v = var_is_definied(symb.get('var'), instr)
         if not hasattr(var_v, 'type'):
             sys.stderr.write("ERROR : SEMANTIC : Trying to work with undefinied value in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
-            exit()
+            exit(56)
         return var_v.get_type()
 
     elif symb.get('int') is not None:
@@ -636,8 +753,11 @@ def operation_type(symb, instr):
 
     else:
         sys.stderr.write("ERROR : SEMANTIC : Unsupported operand type %s in instruction: %s on line %s\n" %(symb, instr.get_instr_name(), instr.get_instr_pos()))
-        exit()
+        exit(53)
 
+## Handles lt instruction
+#
+# @param instr given instruction
 def handle_lt(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -664,8 +784,11 @@ def handle_lt(instr):
             var1.set_value('false', 'bool')
     elif operand_type == 'nil':
         sys.stderr.write("ERROR : SEMANTIC : Unsupported operand type nil in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
-        exit()
+        exit(53)
 
+## Handles gt instruction
+#
+# @param instr given instruction
 def handle_gt(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -694,6 +817,9 @@ def handle_gt(instr):
         sys.stderr.write("ERROR : SEMANTIC : Unsupported operand type: nil in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
         exit(53)
 
+## Handles eq instruction
+#
+# @param instr given instruction
 def handle_eq(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -727,11 +853,10 @@ def handle_eq(instr):
             var1.set_value('true', 'bool')
         else:
             var1.set_value('false', 'bool')
-    # Comparing nil values
-    # else:
-    #     sys.stderr.write("ERROR : SEMANTIC : Unsupported operand type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
-    #     exit()
 
+## Handles and instruction
+#
+# @param instr given instruction
 def handle_and(isntr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -747,6 +872,9 @@ def handle_and(isntr):
     else:
         var1.set_value('false', 'bool')
 
+## Handles or instruction
+#
+# @param instr given instruction
 def handle_or(isntr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -762,6 +890,12 @@ def handle_or(isntr):
     else:
         var1.set_value('false', 'bool')
 
+## Checks if given symbol has desired type
+#
+# @param instr given instruction
+# @param symb examined symbol
+# @param symb_type desired type
+# @param returns value of given symbol
 def check_single_symb(instr, symb, symb_type):
 
     raise_err = False
@@ -774,7 +908,7 @@ def check_single_symb(instr, symb, symb_type):
 
         else:
             raise_err = True
-    # Second operand is <symb> {int}
+    # Second operand is <symb> {@symb_type}
     elif symb.get(symb_type) is not None:
         var2_val = next(iter(symb.values()))
 
@@ -782,11 +916,14 @@ def check_single_symb(instr, symb, symb_type):
         raise_err = True
 
     if raise_err:
-        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name, instr.get_instr_pos))
-        exit()
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+        exit(53)
 
     return var2_val
 
+## Handles not instruction
+#
+# @param instr given instruction
 def handle_not(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -804,6 +941,9 @@ def handle_not(instr):
 
     var1.set_value(var2_val, 'bool')
 
+## Handles int2char instruction
+#
+# @param instr given instruction
 def handle_int2_char(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -811,15 +951,25 @@ def handle_int2_char(instr):
 
     var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
-    var2_val = check_single_symb(instr, a_symb1, 'int') # ---------------------possible string@9 ???????
+    operand_type = operation_type(a_symb1, instr)
 
-    if 0 <= var2_val <= 1114111:
-        chr_val = chr(var2_val)
-        var1.set_value(chr_val, 'string')
+    if operand_type == 'var' or operand_type == 'int':
+
+        var2_val = check_single_symb(instr, a_symb1, 'int') # ---------------------possible string@9 ???????
+
+        if 0 <= int(var2_val) <= 1114111:
+            chr_val = chr(int(var2_val))
+            var1.set_value(chr_val, 'string')
+        else:
+            sys.stderr.write("ERROR : SEMANTIC : Instruction: %s operand value: %s out of bounds\n" %(instr.get_instr_name(), var2_val))
+            exit(58)
     else:
-        sys.stderr.write("ERROR : SEMANTIC : Instruction: %s operand value: %s out of bounds\n" %(instr.get_instr_name(), var2_val))
-        exit(58)
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+        exit(53)
 
+## Handles stri2int instruction
+#
+# @param instr given instruction
 def handle_stri2_int(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -828,17 +978,29 @@ def handle_stri2_int(instr):
 
     var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
-    var2_val = check_single_symb(instr, a_symb1, 'string')
-    var3_val = check_single_symb(instr, a_symb2, 'int')
+    operand_type1 = operation_type(a_symb1, instr)
+    operand_type2 = operation_type(a_symb2, instr)
 
-    if len(str(var2_val)) < int(var3_val) or int(var3_val) < 0:   # ------------ Write into documentation (-1 not supported)
-        sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
-        exit(58)
+    var2_val = check_single_symb(instr, a_symb1, operand_type1)
+    var3_val = check_single_symb(instr, a_symb2, operand_type2)
+
+    if operand_type1 == 'string' or operand_type1 == 'var' and operand_type2 == 'var' or operand_type2 == 'int':
+        if len(str(var2_val)) <= int(var3_val) or int(var3_val) < 0:   # ------------ Write into documentation (-1 not supported)
+            sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
+            exit(58)
+        else:
+            res = ord(var2_val[int(var3_val)])
+            var1.set_value(res, 'int')
     else:
-        res = ord(var2_val[var3_val])
-        var1.set_value(res, 'int')
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+        exit(53)
 
-# Input-output instructions
+### Input-output instructions ###
+
+## Handles read instruction
+#
+# @param instr given instruction
+# @param input_from defines if read read from stdin or file
 def handle_read(instr, input_from):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -853,12 +1015,12 @@ def handle_read(instr, input_from):
         try:
             if not os.access(check_input[1], os.R_OK):
                 sys.stderr.write("ERROR : FILE : could not read from file - weak permissions\n")
-                exit()
+                exit(11)
             source_file = open(check_input[1], "r")
 
         except FileNotFoundError:
             sys.stderr.write("ERROR : FILE : given file does not exists\n")
-            exit()
+            exit(11)
         res = source_file.readline()
         source_file.close()
 
@@ -886,6 +1048,10 @@ def handle_read(instr, input_from):
 
     var1.set_value(res, symb_val)
 
+## Handles write instruction
+#
+# Prints value of given symbol to stdout
+# @param instr given instruction
 def handle_write(instr):
 
     symb = instr.get_specific_arg(1)  # <symb>
@@ -904,7 +1070,11 @@ def handle_write(instr):
     else:
         print(symb_val, end='')
 
-# Instructions for chains
+### Instructions for chains ###
+
+## Handles concat instruction
+#
+# @param instr given instruction
 def handle_concat(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -913,26 +1083,44 @@ def handle_concat(instr):
 
     var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
-    operands = check_base_arith(instr, a_symb1, a_symb2, 'string')
+    operand_type1 = operation_type(a_symb1, instr)
+    operand_type2 = operation_type(a_symb2, instr)
 
-    res = operands[0] + operands[1]
+    if operand_type1 == 'var' or operand_type1 == 'string' and operand_type2 == 'var' or operand_type2 == 'string':
+        operands = check_base_arith(instr, a_symb1, a_symb2, operand_type1)
 
-    var1.set_value(res, 'string')
+        res = operands[0] + operands[1]
+        var1.set_value(res, 'string')
+    else:
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+        exit(53)
 
+
+## Handles strlen instruction
+#
+# @param instr given instruction
 def handle_strlen(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
     a_symb1 = instr.get_specific_arg(2)  # <symb1>
 
     var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
-    # operand_type = operation_type(a_symb1, instr)
+    operand_type = operation_type(a_symb1, instr)
 
-    symb_val = check_single_symb(instr, a_symb1, 'string')  #----------------support int, etc?
+    if operand_type == 'var' or operand_type == 'string':
 
-    res = len(symb_val)
+        symb_val = check_single_symb(instr, a_symb1, 'string')  #----------------support int, etc?
 
-    var1.set_value(res, 'int')
+        res = len(symb_val)
+        var1.set_value(res, 'int')
+    else:
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+        exit(53)
 
+
+## Handles getchar instruction
+#
+# @param instr given instruction
 def handle_getchar(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -941,16 +1129,27 @@ def handle_getchar(instr):
 
     var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
-    var2_val = check_single_symb(instr, a_symb1, 'string')
-    var3_val = check_single_symb(instr, a_symb2, 'int')
+    operand_type1 = operation_type(a_symb1, instr)
+    operand_type2 = operation_type(a_symb2, instr)
+    if operand_type1 == 'var' or operand_type1 == 'string' and operand_type2 == 'var' or operand_type2 == 'int':
 
-    if len(str(var2_val)) < int(var3_val) or int(var3_val) < 0:   # ------------ Write into documentation (-1 not supported)
-        sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
-        exit(58)
+        var2_val = check_single_symb(instr, a_symb1, 'string')
+        var3_val = int(check_single_symb(instr, a_symb2, 'int'))
+
+        if len(str(var2_val)) <= var3_val or var3_val < 0:   # ------------ Write into documentation (-1 not supported)
+            sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
+            exit(58)
+        else:
+            res = var2_val[var3_val]
+            var1.set_value(res, 'string')
     else:
-        res = var2_val[var3_val]
-        var1.set_value(res, 'string')
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+        exit(53)
 
+
+## Handles setchar instruction
+#
+# @param instr given instruction
 def handle_set_char(instr):
 
     a_var = instr.get_specific_arg(1)   # <var>
@@ -959,30 +1158,47 @@ def handle_set_char(instr):
 
     var1 = var_is_definied(a_var.get('var'), instr)    # <var> is definied
 
-    var2_val = check_single_symb(instr, a_symb1, 'int')
-    var3_val = check_single_symb(instr, a_symb2, 'string')
+    operand_type1 = operation_type(a_symb1, instr)
+    operand_type2 = operation_type(a_symb2, instr)
+    if operand_type1 == 'var' or operand_type1 == 'int' and operand_type2 == 'var' or operand_type2 == 'string':
 
-    res = var1.get_value()
-    if int(var2_val) < 0 or len(res) < int(var2_val):
-        sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
-        exit(58)
+        var2_val = check_single_symb(instr, a_symb1, operand_type1)
+        var3_val = check_single_symb(instr, a_symb2, operand_type2)
+
+        try:
+            var2_val = int(var2_val)
+        except ValueError:
+            sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+            exit(53)
+        res = var1.get_value()
+        if var2_val < 0 or len(res) <= var2_val:
+            sys.stderr.write("ERROR : SEMANTIC : Instruction: %s index: %s is out of bounds\n" %(instr.get_instr_name(), var3_val))
+            exit(58)
+        else:
+            # <symb2> contains more than 1 character
+            if len(var3_val) > 1:
+                var3_val = var3_val[0]
+            elif len(var3_val) == 0:
+                sys.stderr.write("ERROR : SEMANTIC : Instruction: %s cannot apply on empty string\n" %(instr.get_instr_name()))
+                exit(58)
+
+            # convert to list
+            res = list(res)
+            # change character on given index
+            res[int(var2_val)] = var3_val
+            # change back to string
+            res = "".join(res)
+
+            var1.set_value(res, 'string')
     else:
-        # <symb2> contains more than 1 character
-        if len(var3_val) > 1:
-            var3_val = var3_val[1]
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+        exit(53)
 
-        # convert to list
-        res = list(res)
-        # change character on given index
-        res[int(var2_val)] = var3_val
-        # change back to string
-        res = "".join(res)
+### Work with types ###
 
-        var1.set_value(res, 'string')
-
-    # pprint.pprint(var1.get_value())
-
-# Work with types
+## Handles type instruction
+#
+# @param instr given instruction
 def handle_type(instr):
     global global_frame
     global local_frame
@@ -1013,38 +1229,31 @@ def handle_type(instr):
 
     var1.set_value(res, 'string')
 
-    # pprint.pprint(var1.get_value())
+### Flow control instructions ###
 
-# def handle_label(instr):
-#     # global labels
-#     #
-#     # label = instr.get_specific_arg(1)  # <label>
-#     # label_name = next(iter(label.values()))
-#     #
-#     # for name, pos in labels:
-#     #     if name == label_name:
-#     #         sys.stderr.write("ERROR : SEMANTIC : Trying to redefine existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
-#     #         exit(52)
-#     #
-#     # labels.append((label_name,instr.get_instr_pos()))
-#     #
-#     # pprint.pprint(labels)
-#     pass
-
-# Flow control instructions
+## Handles jump instruction
+#
+# @param instr given instruction
 def handle_jump(instr):
     global labels
 
     label = instr.get_specific_arg(1)  # <label>
     label_name = next(iter(label.values()))
 
-    for name, pos in labels:
-        if name == label_name:
-            return int(pos)
+    if 'labels' in globals():
+        for name, pos in labels:
+            if name == label_name:
+                return int(pos)
 
-    sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
-    exit(52)
+        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+        exit(52)
+    else:
+        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+        exit(52)
 
+## Handles jumpifeq instruction
+#
+# @param instr given instruction
 def handle_jumpifeq(instr, act_pos):
 
     label = instr.get_specific_arg(1)  # <label>
@@ -1056,12 +1265,16 @@ def handle_jumpifeq(instr, act_pos):
     # Indicates if label exists
     exists = False
 
+    if 'labels' not in globals():
+        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+        exit(52)
+
     for name, pos in labels:
         if name == label_name:
             exists = True
             break
 
-    if not exits:
+    if not exists:
         sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
         exit(52)
     else:
@@ -1082,7 +1295,11 @@ def handle_jumpifeq(instr, act_pos):
         else:
             return int(act_pos)
 
-def jumpifneq(instr, act_pos):
+
+## Handles jumpifneq instruction
+#
+# @param instr given instruction
+def handle_jumpifneq(instr, act_pos):
 
     label = instr.get_specific_arg(1)  # <label>
     label_name = next(iter(label.values()))
@@ -1093,12 +1310,16 @@ def jumpifneq(instr, act_pos):
     # Indicates if label exists
     exists = False
 
+    if 'labels' not in globals():
+        sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
+        exit(52)
+
     for name, pos in labels:
         if name == label_name:
             exists = True
             break
 
-    if not exits:
+    if not exists:
         sys.stderr.write("ERROR : SEMANTIC : Trying to jump on non-existing label: %s in on line: %s\n" %(label_name, instr.get_instr_pos()))
         exit(52)
     else:
@@ -1119,19 +1340,31 @@ def jumpifneq(instr, act_pos):
         else:
             return int(act_pos)
 
+## Handles exit instruction
+#
+# @param instr given instruction
 def handle_exit(instr):
 
-    symb = instr.get_specific_arg(2)  # <symb>
+    symb = instr.get_specific_arg(1)  # <symb>
+    operand_type = operation_type(symb, instr)
 
-    symb_val = (instr, symb, 'int')
+    if operand_type == 'var' or operand_type == 'int':
+        symb_val = int(check_single_symb(instr, symb, operand_type))
 
-    if 0 < symb_val < 50:
-        exit(symb_val)
-    else:
-        sys.stderr.write("ERROR : SEMANTIC : Invalid value: %s in function %s on line: %s\n" %(symb_val, instr.get_instr_name(), instr.get_instr_pos()))
+        if 0 <= symb_val <= 49:
+            exit(symb_val)
+        else:
+            sys.stderr.write("ERROR : SEMANTIC : Invalid value: %s in function %s on line: %s\n" %(symb_val, instr.get_instr_name(), instr.get_instr_pos()))
         exit(57)
+    else:
+        sys.stderr.write("ERROR : SEMANTIC : Unexpected argument type in instruction: %s on line %s\n" %(instr.get_instr_name(), instr.get_instr_pos()))
+        exit(53)
 
-# Debug instructions
+### Debug instructions ###
+
+## Handles dprint instruction
+#
+# @param instr given instruction
 def handle_dprint(instr):
 
     symb = instr.get_specific_arg(1)  # <symb>
@@ -1141,6 +1374,10 @@ def handle_dprint(instr):
 
     sys.stderr.write("%s" %symb_val)    # new line or not ? ------------------------------------------
 
+
+## Handles break instruction
+#
+# @param instr given instruction
 def handle_break(instr):
 
     global global_frame
@@ -1167,7 +1404,6 @@ def handle_break(instr):
     else:
         sys.stderr.write("Temporary frame is empty\n")
 
-
 ################################################################################
 
 # Argument parse
@@ -1175,15 +1411,24 @@ arg_parse = Args(None, None)
 
 if len(sys.argv) == 1:
     sys.stderr.write("ERROR : ARGUMENTS : need argument --source of --input run --help\n")
-    exit()
-elif sys.argv[1] == "--help" and len(sys.argv) < 3:
-    print("Help message");
+    exit(10)
+elif sys.argv[1] == "--help" and len(sys.argv) < 3: # Help cannot exists with other arguments
+    print ('Usage python3 interpret.py --help | [--input=path | --source=path]\n', \
+            'Interpret of language .IPPcode19 written in XML format.\n\n',\
+            '   --help          prints help message\n',\
+            '   --input=path    specifies path to input file for IPPcode19 instructions\n',\
+            '   --source=path   specifies path to source code file of IPPcode19\n\n',\
+            'Interpret checks given XML input and control lexical, syntax and semantic of\n',\
+            'given code.'
+            )
     exit(0);
 
+# more arguments then supported
 if len(sys.argv) > 3:
     sys.stderr.write("ERROR : ARGUMENTS : too many arguments run --help for further info\n")
-    exit()
+    exit(10)
 
+# search for --input and --source
 if len(sys.argv) == 3:
     if re.search('^(--source=)+', sys.argv[1]) and re.search('^(--input=)+', sys.argv[2]):
         arg_parse.set_source((sys.argv[1])[9:])
@@ -1200,46 +1445,51 @@ elif len(sys.argv) == 2:
         arg_parse.set_input((sys.argv[1])[8:])
     else:
         sys.stderr.write("ERROR : ARGUMENTS : unknown arguments run --help for further info\n")
-        exit()
+        exit(10)
 
-if((arg_parse.get_attrib())[0] != "None"):
+if((arg_parse.get_attrib())[0] is not None):
     source_file_name = (arg_parse.get_attrib())[0]
 
+    # Checks for rights for read from file
     try:
         if not os.access(source_file_name, os.R_OK):
             sys.stderr.write("ERROR : FILE : could not read from file - weak permissions\n")
-            exit()
+            exit(11)
         source_file = open(source_file_name, "r")
 
     except FileNotFoundError:
         sys.stderr.write("ERROR : FILE : given file does not exists\n")
-        exit()
-    except elem_tree.ParseError:
-        sys.stderr.write("ERROR : XML : XML file is not well-formed\n")
-        exit()
+        exit(11)
+
 
     source_xml = ""
     for line in source_file:
         source_xml = source_xml + line
+
+    try:
+        tree = elem_tree.parse(source_file_name) # Creating ElementTree object
+    except elem_tree.ParseError:
+        sys.stderr.write("ERROR : XML : XML file is not well-formed\n")
+        exit(31)
+
+    root = parse_xml(tree) # Retrieve root
+    source_file.close()
 
 else:
     source_xml = ""
     for line in sys.stdin:
         source_xml = source_xml + line
 
-
+# Try to get root - any error results in not well-formed xml
 try:
-    xml_file = elem_tree.fromstring(source_xml)
+    root = elem_tree.fromstring(source_xml)
 
 except elem_tree.ParseError:
     sys.stderr.write("ERROR : XML : XML file is not well-formed\n")
-    exit()
+    exit(31)
 
-
-tree = elem_tree.parse(source_file_name)
-root = parse_xml(tree)
+# List of out instructions
 instruct_list = list()
-source_file.close()
 
 # parse given XML and create obj for every instruction
 for instr in root.iter('instruction'):
@@ -1260,6 +1510,15 @@ for instr in root.iter('instruction'):
 
 # Sorting list by order attribute
 instruct_list.sort(key=lambda x: int(x.line), reverse=False)
+
+# Duplicate order attribute
+i = 0
+while(i < len(instruct_list)):
+    if i > 0:
+        if instruct_list[i-1].get_instr_pos() == instruct_list[i].get_instr_pos():
+             sys.stderr.write("ERROR : XML : file is not well formed duplicate order attribute in instrucion: %s\n" %(instruct_list[i].get_instr_name()))
+             exit(32)
+    i += 1
 
 act_pos = 0
 
@@ -1293,12 +1552,10 @@ while int(act_pos) < len(instruct_list):
                 pass
             else:
                 sys.stderr.write("ERROR : Unknown argument type: %s of instruction %s\n" %(i_type, instr.get_instr_name()))
-                exit()
+                exit(32)
 
     # SYNTAX ANALYSIS
     syntax_check(instr)
-
-    # print (instr.get_instr_name())
 
     # Work with frames
     if (instr.get_instr_name()).upper() == 'MOVE':
@@ -1314,9 +1571,9 @@ while int(act_pos) < len(instruct_list):
 
     # Function call instructions
     elif (instr.get_instr_name()).upper() == 'CALL':
-        handle_call(instr)
+        act_pos = int(handle_call(instr, act_pos))
     elif (instr.get_instr_name()).upper() == 'RETURN':
-        handle_return(instr)
+        act_pos = handle_return(instr)
 
     # Stack instructions
     elif (instr.get_instr_name()).upper() == 'PUSHS':
@@ -1378,21 +1635,22 @@ while int(act_pos) < len(instruct_list):
 
     # Flow control instructions
     elif (instr.get_instr_name()).upper() == 'LABEL':
-        # handle_label(instr)
         # Label instruction is handled above in previous semantic check for labels in source
         pass
     elif (instr.get_instr_name()).upper() == 'EXIT':
         handle_exit(instr)
     elif (instr.get_instr_name()).upper() == 'JUMP':
         # Jump can change the flow of processing instructions by jumping on label
-        act_pos = handle_jump(instr)
+        act_pos = int(handle_jump(instr))
     elif (instr.get_instr_name()).upper() == 'JUMPIFEQ':
-        act_pos = handle_jumpifeq(instr, act_pos)
+        act_pos = int(handle_jumpifeq(instr, act_pos))
     elif (instr.get_instr_name()).upper() == 'JUMPIFNEQ':
-        act_pos = handle_jumpifneq(instr)
+        act_pos = int(handle_jumpifneq(instr, act_pos))
 
     # Debug instructions
     elif (instr.get_instr_name()).upper() == 'DPRINT':
             handle_dprint(instr)
     elif (instr.get_instr_name()).upper() == 'BREAK':
             handle_break(instr)
+
+## End of file            

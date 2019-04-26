@@ -1,47 +1,11 @@
 <?php
 /**
- * File: test.php
- * Author: Igor Ignác xignac00@fit.vutbr.cz
- * Name: Implementation of Project for IPP 2018/2019
- * Created: 11.2.02019
+ * @file: test.php
+ * @author: Igor Ignác xignac00@fit.vutbr.cz
+ * @name: Implementation of Project for IPP 2018/2019
+ * @date 11.2.2019
  * Faculty: Faculty of Information Technology, Brno University of Technology
 */
-/*
-TODO
-parse.php
--dokumentacia kodu
--nazov premennej LF@move  - HACK
--obsah string@09256 - HACK
--komentar hned za operandom - HACK
--exit codes	-	HACK
--statp opravit pracu so suborom a error codes - HACK
--komentar na riadku hned za .ippcode19  - HACK
--male pismena - Lf lF v oznaceni ramca - HACK
--FAlse FALSE false - HACK
-- .ippcode19 createframe  - HACK
--instrukcia na rovnakom riadku ako .ippcode19
-- LF@5a_55-$&amp;%*!?string - HACK
-- prazdne riadky pred .ippcode19
-- string@h@rg@dfg@
-
-
-test.php
--dokumentacia kodu
--otestovat parametre vstupne  - HACK
--usage v test.php a parse.php - HACK
--recursive zanorovanie do directories + oddelit spustanie testov do funkcie - HACK
-- *.rc subory ak nie su vytvorene - chyba navratova hodnota zjavne  - HACK
-- generate HTML on empty dir with tests - HACK
-- add test names to output  - HACK
-- navratove hodnoty testov ktoru brat kedy  - HACK
-- separatne premenne pre dir testy a celkove uspesnosti
-
-- valid directory checkd  - HACK
-- dir of file doesnt exists - HACK
-- creating files in --directory to proper directory - HACK
-
-*/
-
 
   /**
   * Class for better argument parsing
@@ -84,7 +48,7 @@ test.php
    * @param exp_val expected return value of the test
    * @param returned_val returned val by the test
    */
-  function unsucc_test_html($test_counter, $test_name, $exp_val, $returned_val){
+  function unsucc_test_html($test_counter, $test_name, $returned_val, $exp_val){
     echo "<font size=\"2\" color=\"red\">$test_counter. $test_name TEST :  failed</font><br>\n";
     if($returned_val === "124"){
       echo "<font size=\"2\" color=\"black\" style=\"margin-left: 15%\">Program got stucked killed the process</font><br>\n";
@@ -120,10 +84,28 @@ test.php
     global $unsucess_test;
     global $test_number;
 
+    $dir_succ = 0;
+    $dir_failed = 0;
+    $dir_total = 0;
+
     foreach ($srcfiles as $key => $value) {
       $test_number++;
-      if(!$rec) $value = prepend($value, $dir_file);
+      $current_dir = strrev(strstr(strrev($srcfiles[$key]), '/'));
+      $next_dir = strrev(strstr(strrev($srcfiles[++$key]), '/')); //next dir -> used under
+      $test_status = False;
+      if($current_dir !== $next_dir){ // directory changed -> output sum Information about tests
+        $dir_total = $dir_succ + $dir_failed;
+        echo "<font size=\"5\" color=\"black\" style=\"margin-left: 10%\">Directory: $current_dir with results :</font><br>\n";
+        echo "<font size=\"2\" color=\"green\" style=\"margin-left: 10%\">Tests passed: $dir_succ</font><br>\n";
+        echo "<font size=\"2\" color=\"red\" style=\"margin-left: 10%\">Tests failed: $dir_failed</font><br>\n";
+        echo "<font size=\"2\" color=\"black\" style=\"margin-left: 10%\">Tests total: $dir_total</font><br>\n";
+        $dir_succ = $dir_failed = $dir_total = 0;
 
+      }
+      if(!$rec) $value = prepend($value, $dir_file);  //prepend path to test name
+
+      /*  Extracting values from test files or creating new ones if not found */
+      $e_src = $value;
       if(!file_exists(str_replace(".src", ".rc", $value))){
         $f_rc = fopen(str_replace(".src", ".rc", $value), "w+");
         fwrite($f_rc, "0");
@@ -136,64 +118,95 @@ test.php
 
       if(!file_exists(str_replace(".src", ".in", $value))){
         $f_in = fopen(str_replace(".src", ".in", $value), "w");
+        $e_in = str_replace(".src", ".in", $value);
       }
       else {
         $f_in = fopen(str_replace(".src", ".in", $value), "r");
+        $e_in = str_replace(".src", ".in", $value);
       }
 
       if(!file_exists(str_replace(".src", ".out", $value))){
         $f_out = fopen(str_replace(".src", ".out", $value), "w");
+        $e_out = str_replace(".src", ".out", $value);
       }
       else {
         $f_out = fopen(str_replace(".src", ".out", $value), "r");
+        $e_out = str_replace(".src", ".out", $value);
       }
 
-      /*  Run tests only for parser  */
+      /*  Run tests only for parser  or testing both  */
       if($arg_parse->p_parse_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
-        exec("timeout 1 php7.3 $parse_file < $value  2> /dev/null > parse_temp.out ");
-        $ret_val = exec("echo $?");
-        if($ret_val === 124){ //return value on timeout
-          $unsucess_test++;
-          unsucc_test_html($test_number, $value, $ret_val, $rc_val);
-        }
-        elseif($ret_val !== $rc_val && ($rc_val >= 0 && $rc_val <= 23)){  //catch return value from range 0 - 23
-          $unsucess_test++;
-          unsucc_test_html($test_number, $value, $ret_val, $rc_val);
-        }
-        else{
-          exec("java -jar /pub/courses/ipp/jexamxml/jexamxml.jar $f_out parse_temp.out diffs.xml  /D /pub/courses/ipp/jexamxml/options"); //compare XML files with JExamXML
-          $ret_val = exec("echo $?");
-          if($ret_val !== "0"){
+        if((intval($rc_val) >= 0 && intval($rc_val) <= 23)){
+          exec("timeout 1 php7.3 $parse_file < $value 2> /dev/null > parse_temp.out ", $out, $ret_val);
+          if($ret_val === 124){ //return value on timeout
             $unsucess_test++;
-            unsucc_test_html($test_number, $value , $ret_val, $rc_val);
+            $dir_failed++;
+            unsucc_test_html($test_number, $value, $ret_val, $rc_val);
+            $test_status = True;
           }
-          else {
-            //if($arg_parse->p_parse_only){
+          elseif($ret_val !== intval($rc_val) && (intval($rc_val) >= 0 && intval($rc_val) <= 23)){  //catch return value from range 0 - 23
+            $unsucess_test++;
+            $dir_failed++;
+            unsucc_test_html($test_number, $value, $ret_val, $rc_val);
+            $test_status = True;
+          }
+          elseif(intval($rc_val) !== 0 && $ret_val === intval($rc_val))
+          {
+            $succ_test++;
+            $dir_succ++;
+            succ_test_html($test_number, $value);
+            $test_status = True;
+          }
+          else{
+            exec("java -jar /pub/courses/ipp/jexamxml/jexamxml.jar $e_out parse_temp.out", $out, $ret_val); //compare XML files with JExamXML  diffs.xml /D /pub/courses/ipp/jexamxml/options
+
+            if($ret_val !== 0){
+              $unsucess_test++;
+              $dir_failed++;
+              unsucc_test_html($test_number, $value , $ret_val, $rc_val);
+              $test_status = True;
+            }
+            else {
               $succ_test++;
+              $dir_succ++;
               succ_test_html($test_number, $value);
-            //}
+            }
           }
         }
       }
       /*  Running tests for interpreter */
-      elseif($arg_parse->p_int_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
-        exec("python3.6 $int_file --source=parse_temp.out --input=$f_in > int_temp.out");
-        $ret_val = exec("echo $?");
-        if($ret_val !== $rc_val){
-          $unsucess_test++;
-          unsucc_test_html($test_number, $value, $ret_val, $rc_val);
+      if($arg_parse->p_int_only || (!$arg_parse->p_parse_only && !$arg_parse->p_int_only)){
+        if(!$arg_parse->p_parse_only && !$arg_parse->p_int_only) {
+          $source_file = "parse_temp.out";
         }
-        else{
-          $diff_out = "";
-          exec("diff $int_out $f_out > $diff_out"); //comparing output with diff
-          exec("echo $?");
-          if($ret_val !== "0"){
+        else {
+          $source_file = $e_src;
+        }
+        if(!$test_status){
+          exec("timeout 1 python3.6 $int_file --source=$source_file --input=$e_in 2> /dev/null > int_temp.out", $out, $ret_val);
+          if(intval($ret_val) !== intval($rc_val)){
             $unsucess_test++;
+            $dir_failed++;
             unsucc_test_html($test_number, $value, $ret_val, $rc_val);
           }
-          else {
+          elseif(intval($rc_val) !== 0 && $ret_val === intval($rc_val))
+          {
             $succ_test++;
+            $dir_succ++;
             succ_test_html($test_number, $value);
+          }
+          else{
+            exec("diff int_temp.out $e_out 2> /dev/null", $out, $ret_val); //comparing output with diff
+            if($ret_val !== 0){
+              $unsucess_test++;
+              $dir_failed++;
+              unsucc_test_html($test_number, $value, $ret_val, $rc_val);
+            }
+            else {
+              $succ_test++;
+              $dir_succ++;
+              succ_test_html($test_number, $value);
+            }
           }
         }
       }
@@ -295,6 +308,14 @@ test.php
     $dir_file .= "/";
   }
 
+  if(!file_exists($int_file)){
+    fwrite(STDERR,"ERROR : FILE : Can not find file interpret.py\n");
+    exit(11);
+  }
+  if(!file_exists($parse_file)){
+    fwrite(STDERR,"ERROR : FILE : Can not find file parse.php\n");
+    exit(11);
+  }
   if(!is_dir($dir_file) || !file_exists($dir_file)){
     fwrite(STDERR,"ERROR : ARGUMENTS : Unknown argument: $value detected\n");
     exit(11);
@@ -317,10 +338,10 @@ test.php
     else {
       echo "<font size=\"2\" color=\"red\">Given directory doesn't contain any test</font><br>\n";
     }
-    echo "<font size=\"5\" color=\"black\">Directory results :</font><br>\n";
-    echo "<font size=\"2\" color=\"black\">Tests total: $test_number</font><br>\n";
-    echo "<font size=\"2\" color=\"green\">Tests passed: $succ_test</font><br>\n";
-    echo "<font size=\"2\" color=\"red\">Tests failed: $unsucess_test</font><br>\n";
+    echo "<font size=\"5\" color=\"black\" style=\"margin-left: 10%\">Directory results :</font><br>\n";
+    echo "<font size=\"2\" color=\"black\" style=\"margin-left: 10%\">Tests total: $test_number</font><br>\n";
+    echo "<font size=\"2\" color=\"green\" style=\"margin-left: 10%\">Tests passed: $succ_test</font><br>\n";
+    echo "<font size=\"2\" color=\"red\" style=\"margin-left: 10%\">Tests failed: $unsucess_test</font><br>\n";
   }
   else {
     /***************************************************************************************
@@ -358,4 +379,5 @@ test.php
   if(!$arg_parse->p_parse_only){
     exec("rm -rf int_temp.out 2>& 1");
   }
+  /* EOF */
  ?>
