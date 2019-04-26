@@ -1,7 +1,7 @@
-# IPP19
+# Interpretation of non-structured imperative language IPPcode19.
 
 # Parser
-    Usage: php7.3 test.php | --help | [--stats=file] [--loc] | [--comments] | [--labels] | [--jumps]
+    Usage: php7.3 parser.php | --help | [--stats=file] [--loc] | [--comments] | [--labels] | [--jumps]
               Parser for .IPPcode19 language\n
                 --help        help message
                 --stats=file  file which will contain code statistics
