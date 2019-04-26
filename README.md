@@ -13,6 +13,11 @@
     Parse will parse given input from STDIN and checks it lexical and syntax correctness.
     Through analysis parser also generates XML file as output to STDOUT. XML file consists
     of instructions and their operands writen in XML standard.
+    
+    Lexical analysis: 92%
+    Syntax analysis : 86%
+    Processing of instructions: 98%
+    Program procession: 70%
       
 
 # Interpet
@@ -25,6 +30,12 @@
                --source=path   specifies path to source code file of IPPcode19
            
     Interpret checks given XML input and control lexical, syntax and semantic of given code.
+    
+    Lexical analysis: 100%
+    Syntax analysis: 86%
+    Semantic analysis (error detection): 100%
+    Runtime errors (detection): 83%
+    Interpretation of instructions: 89%   
     
 # Test
     Usage: php7.3 test.php | --help | [--directory=path] [--recursive] [--parse-script=file] [--int-script=file] | [--parse-only] | [--int-only]
